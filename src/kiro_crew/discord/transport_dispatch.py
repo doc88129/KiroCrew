@@ -74,6 +74,7 @@ from kiro_crew.messaging.driver import APPROVAL_INTERACTIVE, TurnDriver
 from kiro_crew.messaging.identity import (
     channel_inbound_permitted,
     exclusive_bind_raw_id,
+    prepare_turn_gateway,
     publish_turn_identity,
 )
 from kiro_crew.messaging.inbound_spool import InboundRoute, spool_refused_turn
@@ -538,6 +539,23 @@ class DiscordDispatcher:
             return monitor_result
         chan_id = f"discord:{channel_id}" if thread_id else f"discord:{user_id}"
         agent = self._resolve_agent()
+        # Stage the Gateway bind before EITHER claim below runs session/new:
+        # the monitor-completion fast claim spawns too, and a sidecar written
+        # after it would only reach the next turn's process.
+        await prepare_turn_gateway(
+            self.sessions,
+            session_key,
+            principal_bind_kwargs(
+                text,
+                surface="discord",
+                raw_id=exclusive_bind_raw_id(
+                    user_id if msg.bind_principal else "",
+                    exclusive=not thread_id,
+                    session_key=session_key,
+                ),
+            ),
+            agent=agent or "",
+        )
         _acquired = False
         provider = None
         is_new = False
