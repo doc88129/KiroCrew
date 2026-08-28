@@ -234,7 +234,7 @@ def _cache_without_scrape(
     frontend's existing signal to hide the pill instead of rendering blanks.
     ``reason`` (when given) rides that unavailable marker so the frontend can
     explain WHY instead of hiding silently: the opt-in scrape being off is a
-    permanent, user-addressable state (#7623), unlike a cold-start failure,
+    permanent, user-addressable state, unlike a cold-start failure,
     and hiding it left users with no hint that a knob exists.
 
     Preserving is gated on ``_same_identity``: with the scrape disabled, a
@@ -2114,7 +2114,7 @@ async def api_session_tool_policy(request: web.Request) -> web.Response:
     return web.json_response(policy)
 
 
-async def _reset_all_sessions(request: web.Request) -> int:
+async def _reset_all_sessions(request: web.Request, *, await_shutdown: bool = False) -> int:
     """Reset all active sessions so they pick up config changes.
 
     Reloads provider factory (handles provider switch ACP→CC or vice versa),
@@ -2122,14 +2122,19 @@ async def _reset_all_sessions(request: web.Request) -> int:
     processes loaded the old MCP config at spawn time).
     New sessions cold-start on next message.
     Returns the number of sessions reset.
+
+    Dashboard restart leaves provider ``shutdown`` in the background so
+    the HTTP response stays fast. Identity revoke passes
+    ``await_shutdown=True`` so Save → Off cannot return while an old
+    provider still holds Gateway access.
     """
     state: DashboardState = request.app["state"]
     sessions = state.sessions
 
-    # Reload factory so provider switch takes effect immediately
-    await sessions.reload_provider_factory()
-
-    # Pop all active sessions
+    # Drain before reload. ``reload_provider_factory`` awaits
+    # ``provider.shutdown()`` with no timeout on leftover sessions, so
+    # a stalled teardown would hang Save → Off and skip proxy stop.
+    # ``_safe_shutdown`` below owns the bounded kill.
     providers: list[LLMProvider] = []
     count = sessions.count
     if count > 0:
@@ -2138,6 +2143,39 @@ async def _reset_all_sessions(request: web.Request) -> int:
     # Drain warm pool — pre-spawned processes have stale MCP config
     pool_providers = await sessions.drain_warm_pool()
     providers.extend(pool_providers)
+
+    async def _safe_shutdown(p: LLMProvider) -> None:
+        _timeout = _SHUTDOWN_TIMEOUT_SECS
+        try:
+            await asyncio.wait_for(p.shutdown(), timeout=_timeout)
+        except asyncio.TimeoutError:
+            logger.warning(
+                "Session shutdown hung past %.1fs; forcing kill",
+                _timeout,
+            )
+            try:
+                await asyncio.to_thread(_h._sync_kill_provider, p)
+            except Exception:
+                logger.exception("Force-kill fallback also failed for %r", p)
+        except Exception:
+            pass
+
+    async def _shutdown_drained() -> None:
+        if providers:
+            await asyncio.gather(*[_safe_shutdown(p) for p in providers])
+
+    # Reload factory so provider switch takes effect immediately.
+    # If this raises, the drained JWT providers are already out of the
+    # manager map — shut them down here or Save → Off leaves them usable.
+    try:
+        await sessions.reload_provider_factory()
+    except Exception:
+        logger.exception(
+            "provider factory reload failed after drain; shutting down "
+            "drained sessions so leftover credentials cannot stay usable"
+        )
+        await _shutdown_drained()
+        raise
 
     if count > 0 or pool_providers:
         logger.info(
@@ -2149,25 +2187,7 @@ async def _reset_all_sessions(request: web.Request) -> int:
     state.broadcast_ws("sessions_restarting", {"status": "restarting"})
 
     async def _background_restart() -> None:
-        if providers:
-
-            async def _safe_shutdown(p: LLMProvider) -> None:
-                _timeout = _SHUTDOWN_TIMEOUT_SECS
-                try:
-                    await asyncio.wait_for(p.shutdown(), timeout=_timeout)
-                except asyncio.TimeoutError:
-                    logger.warning(
-                        "Session shutdown hung past %.1fs; forcing kill",
-                        _timeout,
-                    )
-                    try:
-                        _h._sync_kill_provider(p)
-                    except Exception:
-                        logger.exception("Force-kill fallback also failed for %r", p)
-                except Exception:
-                    pass
-
-            await asyncio.gather(*[_safe_shutdown(p) for p in providers])
+        await _shutdown_drained()
 
         sessions._pool_started = False
         await sessions.start_pool(blocking=False)
@@ -2176,9 +2196,12 @@ async def _reset_all_sessions(request: web.Request) -> int:
         state.push_slots_update()
         state.broadcast_ws("sessions_restarting", {"status": "ready"})
 
-    task = asyncio.create_task(_background_restart())
-    state._background_tasks.add(task)
-    task.add_done_callback(state._background_tasks.discard)
+    if await_shutdown:
+        await _background_restart()
+    else:
+        task = asyncio.create_task(_background_restart())
+        state._background_tasks.add(task)
+        task.add_done_callback(state._background_tasks.discard)
 
     return count
 

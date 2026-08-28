@@ -5,7 +5,7 @@ import { useAppSelector } from '../../store'
 import { SettingsSubNav } from '../../components/SettingsSubNav'
 import { useImeGuard } from '../../hooks/useImeGuard'
 import { Badge, Btn, Input, Toggle, Checkbox } from '../../components/ui'
-import { SettingsSection, SettingsCard, SettingsSelect, SettingsToggle } from '../../components/settings'
+import { SettingsSection, SettingsCard, SettingsInput, SettingsSelect, SettingsToggle } from '../../components/settings'
 import Modal from '../../components/Modal'
 import InfoTip from '../../components/InfoTip'
 import { api, ApiError, type DeniedCommandsData, type DeniedCommandRule, type DeniedUserRule, type GovernanceDistributionData, type GovernancePolicyData, type GovernanceScope, type GovernanceScopeDetail, type SecurityPostureData, type TailnetStatusData, type TrustedAppsData, type AgentcoreIdentityData, type AgentcoreConsentData, type AgentcoreGatewayData, type AgentcoreGatewayCheck, type AgentcoreGatewayTarget } from '../../api/client'
@@ -2318,8 +2318,15 @@ function ThirdPartyAppsCard() {
           <div className="text-[13px] text-text leading-relaxed">{confirmBody}</div>
         </div>
         {needsAck && (
-          <label className="flex items-center gap-2.5 mt-4 cursor-pointer">
-            <Checkbox checked={ack} onChange={e => setAck(e.target.checked)} />
+          <label htmlFor="trusted-apps-allow-all-ack" className="flex items-center gap-2.5 mt-4 cursor-pointer">
+            <input
+              id="trusted-apps-allow-all-ack"
+              type="checkbox"
+              checked={ack}
+              onChange={e => setAck(e.target.checked)}
+              aria-label={i18nT('pages.settings.securityPanel.trustedApps.allow_all_confirm_ack')}
+              style={{ margin: 0, accentColor: 'var(--accent)', cursor: 'pointer' }}
+            />
             <span className="text-[13px] text-text">{i18nT('pages.settings.securityPanel.trustedApps.allow_all_confirm_ack')}</span>
           </label>
         )}
@@ -2380,6 +2387,21 @@ const CATALOG_CODE_HINT: Record<string, string> = {
   proxy_unavailable: 'pages.settings.securityPanel.agent_identity_code_proxy_unavailable',
 }
 
+const WRITE_BLOCKED_HINT: Record<string, string> = {
+  signed: 'pages.settings.securityPanel.agent_identity_blocked_signed',
+  distribution: 'pages.settings.securityPanel.agent_identity_blocked_distribution',
+  companion: 'pages.settings.securityPanel.agent_identity_blocked_companion',
+  fleet_override: 'pages.settings.securityPanel.agent_identity_blocked_fleet_override',
+  signature_required: 'pages.settings.securityPanel.agent_identity_blocked_signature_required',
+  unreadable: 'pages.settings.securityPanel.agent_identity_blocked_unreadable',
+  unavailable: 'pages.settings.securityPanel.agent_identity_blocked_unavailable',
+}
+
+function writeBlockedCopy(reason: string | null | undefined): string {
+  const key = reason ? WRITE_BLOCKED_HINT[reason] : undefined
+  return i18nT(key ?? 'pages.settings.securityPanel.agent_identity_not_writable')
+}
+
 const TARGET_TYPE_LABEL: Record<string, string> = {
   MCP_SERVER: 'pages.settings.securityPanel.agent_identity_type_mcp',
   MCP: 'pages.settings.securityPanel.agent_identity_type_mcp',
@@ -2414,13 +2436,38 @@ function catalogHint(data: AgentcoreGatewayData | undefined): string | null {
   if (invoke && !invoke.ok && CATALOG_CODE_HINT[invoke.detail]) {
     return i18nT(CATALOG_CODE_HINT[invoke.detail])
   }
+  return null
+}
+
+function toolsEmptyCopy(data: AgentcoreGatewayData | undefined): string | null {
+  if (!data || data.tools.items.length > 0) return null
+  // A skipped tools/list is explained where the reader looks for the list,
+  // under the Tools heading, not as a card-top hint that leaves the heading
+  // bare.
   if (data.tools.skip_reason === 'login_needs_sign_in') {
     return i18nT('pages.settings.securityPanel.agent_identity_tools_skipped_login')
   }
   if (data.tools.skip_reason === 'proxy_unavailable') {
     return i18nT('pages.settings.securityPanel.agent_identity_code_proxy_unavailable')
   }
-  return null
+  if (data.tools.skip_reason) return null
+  if (data.checks.some(check => !check.ok)) return null
+  return i18nT('pages.settings.securityPanel.agent_identity_tools_empty_checks_ok')
+}
+
+function agentcoreConsentErrorCopy(err: unknown): string | null {
+  if (!err) return null
+  if (err instanceof ApiError) {
+    try {
+      const parsed = JSON.parse(err.body) as { code?: unknown }
+      if (parsed.code === 'consent_host_refused') {
+        return i18nT('pages.settings.securityPanel.agent_identity_consent_refused')
+      }
+    } catch {
+      // not JSON — fall through to the generic unavailable copy
+    }
+  }
+  return i18nT('pages.settings.securityPanel.agent_identity_consent_unavailable')
 }
 
 function checkDetailLabel(detail: string): string {
@@ -2447,15 +2494,7 @@ function CheckRow({ check }: { check: AgentcoreGatewayCheck }) {
   )
 }
 
-function TargetRow({
-  target,
-  onSync,
-  syncing,
-}: {
-  target: AgentcoreGatewayTarget
-  onSync: (id: string) => void
-  syncing: boolean
-}) {
+function TargetRow({ target }: { target: AgentcoreGatewayTarget }) {
   const typeKey = TARGET_TYPE_LABEL[target.target_type]
   const synced = target.last_synchronized_at
     ? fmtDateTime(target.last_synchronized_at)
@@ -2508,19 +2547,6 @@ function TargetRow({
             {i18nT('pages.settings.securityPanel.agent_identity_consent_open')}
           </a>
         ) : null}
-        {target.syncable ? (
-          <button
-            type="button"
-            className="inline-flex items-center gap-1 text-accent hover:underline disabled:opacity-50"
-            disabled={syncing}
-            onClick={() => onSync(target.target_id)}
-          >
-            <RefreshCw className={`lucide-inline ${syncing ? 'animate-spin' : ''}`} />
-            {syncing
-              ? i18nT('pages.settings.securityPanel.agent_identity_syncing')
-              : i18nT('pages.settings.securityPanel.agent_identity_sync')}
-          </button>
-        ) : null}
       </td>
     </tr>
   )
@@ -2539,15 +2565,10 @@ function GatewayCatalogCard() {
       queryClient.setQueryData(['agentcore-gateway'], next)
     },
   })
-  const sync = useMutation({
-    mutationFn: (targetId: string) => api.syncAgentcoreGatewayTarget(targetId),
-    onSuccess: () => {
-      void queryClient.invalidateQueries({ queryKey: ['agentcore-gateway'] })
-    },
-  })
   const data = catalog.data
   const hint = catalogHint(data)
   const tools = data?.tools.items ?? []
+  const emptyToolsCopy = toolsEmptyCopy(data)
   const busy = catalog.isFetching || verify.isPending
   const debugBlob = data
     ? JSON.stringify(
@@ -2603,6 +2624,9 @@ function GatewayCatalogCard() {
           </Btn>
         </div>
       </div>
+      {/* No hand-off: this card renders under the identity form, whose
+          posture / workload name / Gateway URL draft is unsaved until Save —
+          navigating to the chat would discard it. */}
       {catalog.isError ? (
         <ErrorNotice
           message={catalog.error instanceof Error ? catalog.error.message : String(catalog.error)}
@@ -2612,14 +2636,6 @@ function GatewayCatalogCard() {
         <ErrorNotice
           message={verify.error instanceof Error ? verify.error.message : String(verify.error)}
         />
-      ) : null}
-      {sync.isError ? (
-        <ErrorNotice
-          message={sync.error instanceof Error ? sync.error.message : String(sync.error)}
-        />
-      ) : null}
-      {sync.isSuccess ? (
-        <p className="text-[12px] text-muted">{i18nT('pages.settings.securityPanel.agent_identity_sync_ok')}</p>
       ) : null}
       {hint ? <p className="text-[12px] text-warn leading-relaxed">{hint}</p> : null}
       {data?.gateway?.name || data?.gateway?.id ? (
@@ -2638,7 +2654,7 @@ function GatewayCatalogCard() {
           ))}
         </ul>
       ) : catalog.isLoading ? (
-        <p className="text-[12px] text-muted">{i18nT('pages.settings.securityPanel.loading_governance_policy')}</p>
+        <p className="text-[12px] text-muted">{i18nT('pages.settings.securityPanel.agent_identity_loading')}</p>
       ) : null}
 
       <div className="space-y-2">
@@ -2655,17 +2671,14 @@ function GatewayCatalogCard() {
                   <th className="pb-1 pr-3 font-medium">{i18nT('pages.settings.securityPanel.agent_identity_target_status')}</th>
                   <th className="pb-1 pr-3 font-medium">{i18nT('pages.settings.securityPanel.agent_identity_target_mode')}</th>
                   <th className="pb-1 pr-3 font-medium">{i18nT('pages.settings.securityPanel.agent_identity_target_synced')}</th>
-                  <th className="pb-1 font-medium" />
+                  <th className="pb-1 font-medium">
+                    <span className="sr-only">{i18nT('pages.settings.securityPanel.agent_identity_target_actions')}</span>
+                  </th>
                 </tr>
               </thead>
               <tbody>
                 {data.targets.map(target => (
-                  <TargetRow
-                    key={target.target_id || target.name}
-                    target={target}
-                    onSync={id => sync.mutate(id)}
-                    syncing={sync.isPending && sync.variables === target.target_id}
-                  />
+                  <TargetRow key={target.target_id || target.name} target={target} />
                 ))}
               </tbody>
             </table>
@@ -2682,7 +2695,9 @@ function GatewayCatalogCard() {
           ) : null}
         </p>
         {tools.length === 0 ? (
-          <p className="text-[12px] text-muted">{i18nT('pages.settings.securityPanel.agent_identity_tools_empty')}</p>
+          emptyToolsCopy ? (
+            <p className="text-[12px] text-muted">{emptyToolsCopy}</p>
+          ) : null
         ) : (
           <ul className="space-y-1.5 max-h-64 overflow-y-auto">
             {tools.map(tool => (
@@ -2702,10 +2717,18 @@ function GatewayCatalogCard() {
           type="button"
           className="inline-flex items-center gap-1.5 text-[12px] text-muted hover:text-text"
           onClick={() => {
-            void navigator.clipboard.writeText(debugBlob).then(() => {
-              setCopied(true)
-              window.setTimeout(() => setCopied(false), 1500)
-            })
+            const clipboard = navigator.clipboard
+            if (!clipboard?.writeText) {
+              setCopied(false)
+              return
+            }
+            void clipboard.writeText(debugBlob).then(
+              () => {
+                setCopied(true)
+                window.setTimeout(() => setCopied(false), 1500)
+              },
+              () => setCopied(false),
+            )
           }}
         >
           {copied ? <Check className="lucide-inline" /> : <Copy className="lucide-inline" />}
@@ -2753,12 +2776,13 @@ function AgentIdentitySection() {
     || (data?.workload_name ?? '') !== draftName.trim()
   const nameRequired = draft !== 'none' && !draftName.trim()
   const blocked = Boolean(data && !data.writable)
-  const { data: consent, isError: consentError } = useQuery<AgentcoreConsentData>({
+  const { data: consent, error: consentQueryError } = useQuery<AgentcoreConsentData>({
     queryKey: ['agentcore-consent'],
     queryFn: api.getAgentcoreConsent,
     enabled: Boolean(data?.configured),
     refetchInterval: 15_000,
   })
+  const consentErrorCopy = agentcoreConsentErrorCopy(consentQueryError)
   const consentHref =
     typeof consent?.url === 'string' && consent.url.startsWith('https://') ? consent.url : null
   return (
@@ -2769,9 +2793,13 @@ function AgentIdentitySection() {
             {i18nT('pages.settings.securityPanel.agent_identity_hint')}
           </p>
           {isLoading ? (
-            <div className="text-[12px] text-muted py-2">{i18nT('pages.settings.securityPanel.loading_governance_policy')}</div>
+            <div className="text-[12px] text-muted py-2">{i18nT('pages.settings.securityPanel.agent_identity_loading')}</div>
           ) : isError ? (
-            <ErrorNotice message={error instanceof Error ? error.message : String(error)} className="mt-3" />
+            <ErrorNotice
+              message={error instanceof Error ? error.message : String(error)}
+              className="mt-3"
+              askAgent
+            />
           ) : (
             <div className="mt-3 space-y-3">
               {draft === 'none' && !data?.workload_name ? (
@@ -2790,51 +2818,38 @@ function AgentIdentitySection() {
                 disabled={blocked || save.isPending}
               />
               {draft !== 'none' && (
-                <label className="flex flex-col gap-1.5">
-                  <span className="text-[13px] text-muted">{i18nT('pages.settings.securityPanel.agent_identity_name')}</span>
-                  <input
-                    type="text"
-                    spellCheck={false}
-                    autoComplete="off"
-                    aria-label={i18nT('pages.settings.securityPanel.agent_identity_name')}
-                    className="bg-bg-elevated border border-border rounded-md px-2 py-1.5 text-text text-sm outline-none focus-ring font-mono"
+                <>
+                  <SettingsInput
+                    label={i18nT('pages.settings.securityPanel.agent_identity_name')}
+                    hint={i18nT('pages.settings.securityPanel.agent_identity_name_hint')}
                     value={draftName}
                     disabled={blocked || save.isPending}
                     placeholder={i18nT('pages.settings.securityPanel.agent_identity_name_placeholder')}
-                    onChange={e => setDraftName(e.target.value)}
+                    onChange={setDraftName}
                   />
-                  <span className="text-[12px] text-muted leading-relaxed">
-                    {i18nT('pages.settings.securityPanel.agent_identity_name_hint')}
-                  </span>
                   {nameRequired ? (
                     <span className="text-[12px] text-warn">
                       {i18nT('pages.settings.securityPanel.agent_identity_name_required')}
                     </span>
                   ) : null}
-                </label>
+                </>
               )}
               {draft !== 'none' && (
-                <label className="flex flex-col gap-1.5">
-                  <span className="text-[13px] text-muted">{i18nT('pages.settings.securityPanel.agent_identity_gateway_url')}</span>
-                  <input
-                    type="url"
-                    spellCheck={false}
-                    autoComplete="off"
-                    aria-label={i18nT('pages.settings.securityPanel.agent_identity_gateway_url')}
-                    className="bg-bg-elevated border border-border rounded-md px-2 py-1.5 text-text text-sm outline-none focus-ring font-mono"
-                    value={draftUrl}
-                    disabled={blocked || save.isPending}
-                    placeholder={i18nT('pages.settings.securityPanel.agent_identity_gateway_url_placeholder')}
-                    onChange={e => setDraftUrl(e.target.value)}
-                  />
-                  <span className="text-[12px] text-muted leading-relaxed">
-                    {i18nT('pages.settings.securityPanel.agent_identity_gateway_url_hint')}
-                  </span>
-                </label>
+                <SettingsInput
+                  label={i18nT('pages.settings.securityPanel.agent_identity_gateway_url')}
+                  hint={i18nT('pages.settings.securityPanel.agent_identity_gateway_url_hint')}
+                  value={draftUrl}
+                  disabled={blocked || save.isPending}
+                  placeholder={i18nT('pages.settings.securityPanel.agent_identity_gateway_url_placeholder')}
+                  onChange={setDraftUrl}
+                />
               )}
               {blocked && (
-                <p className="text-[12px] text-muted">{i18nT('pages.settings.securityPanel.agent_identity_not_writable')}</p>
+                <p className="text-[12px] text-muted">{writeBlockedCopy(data?.write_blocked)}</p>
               )}
+              {/* No hand-off: the posture / workload name / Gateway URL draft
+                  above is unsaved until Save — the chat navigation would
+                  discard it. Applies to every failure surfaced in this card. */}
               {save.isError && (
                 <ErrorNotice message={save.error instanceof Error ? save.error.message : String(save.error)} />
               )}
@@ -2845,13 +2860,13 @@ function AgentIdentitySection() {
                 <p className="text-[12px] text-warn">{i18nT('pages.settings.securityPanel.agent_identity_extra_missing_channel')}</p>
               )}
               {data?.extra_code === 'install_failed' && (
-                <p className="text-[12px] text-warn">{i18nT('pages.settings.securityPanel.agent_identity_extra_failed')}</p>
+                <ErrorNotice message={i18nT('pages.settings.securityPanel.agent_identity_extra_failed')} />
               )}
               {data?.configured && data.extra_installed === false && data.extra_code !== 'no_install_channel' && data.extra_code !== 'install_failed' && (
                 <p className="text-[12px] text-muted">{i18nT('pages.settings.securityPanel.agent_identity_extra_needed')}</p>
               )}
-              {consentError && (
-                <p className="text-[12px] text-muted">{i18nT('pages.settings.securityPanel.agent_identity_consent_refused')}</p>
+              {consentErrorCopy && (
+                <ErrorNotice message={consentErrorCopy} />
               )}
               {consent?.pending && consentHref && (
                 <div className="rounded-md border border-border bg-bg-elevated p-3 space-y-2">

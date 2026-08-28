@@ -1560,7 +1560,7 @@ export const SETTINGS_REGISTRY: SettingEntry[] =
     "configKey": "telemetry.beacon_enabled"
   },
   {
-    "id": "security.agent-identity",
+    "id": "security.identity",
     "labelKey": "pages.settings.securityPanel.agent_identity",
     "tab": "security",
     "type": "select",
@@ -1569,7 +1569,7 @@ export const SETTINGS_REGISTRY: SettingEntry[] =
       "section": "identity"
     },
     "label": "Agent identity",
-    "description": "This crew's AgentCore identity. Workload lets the crew reach the gateway without a login. Login vends only gateway-approved MCP and requires a human to sign in. Off leaves this crew unchanged."
+    "description": "How this crew proves who it is to your AWS AgentCore Gateway (a managed front door to MCP tool servers). Off: nothing changes — the crew keeps working exactly as it does today. Workload: the crew gets its own AWS identity and can call every tool the Gateway exposes, with no human sign-in. Login: the crew can call only the tools the Gateway approves for a signed-in person, and a person must sign in from a chat first. Nothing here takes effect until you press Save, and switching back to Off undoes it."
   },
   {
     "id": "security.denied-commands",
@@ -1581,6 +1581,17 @@ export const SETTINGS_REGISTRY: SettingEntry[] =
       "section": "rules"
     },
     "label": "Denied Commands"
+  },
+  {
+    "id": "security.gateway-url",
+    "labelKey": "pages.settings.securityPanel.agent_identity_gateway_url",
+    "tab": "security",
+    "type": "input",
+    "occurrence": 1,
+    "params": {
+      "section": "identity"
+    },
+    "label": "Gateway URL"
   },
   {
     "id": "security.governance-policy",
@@ -1604,14 +1615,6 @@ export const SETTINGS_REGISTRY: SettingEntry[] =
     },
     "configKey": "agent.yolo_duration",
     "label": "How long auto-approve stays on"
-  },
-  {
-    "id": "security.identity",
-    "label": "Identity",
-    "labelKey": "pages.settings.securityPanel.agent_identity_posture",
-    "tab": "security",
-    "type": "select",
-    "occurrence": 1
   },
   {
     "id": "security.live-security-posture",
@@ -1646,6 +1649,17 @@ export const SETTINGS_REGISTRY: SettingEntry[] =
       "section": "tailnet"
     },
     "label": "Trust this machine's tailnet name"
+  },
+  {
+    "id": "security.workload-name",
+    "labelKey": "pages.settings.securityPanel.agent_identity_name",
+    "tab": "security",
+    "type": "input",
+    "occurrence": 1,
+    "params": {
+      "section": "identity"
+    },
+    "label": "Workload name"
   },
   {
     "id": "security.your-custom-denies",
