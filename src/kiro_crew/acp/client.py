@@ -82,6 +82,7 @@ from kiro_crew.acp.types import (
     ACP_BACKEND_CODEX,
     ACP_BACKEND_KIRO,
     ACP_BACKENDS_ADVERTISED_MODEL_SELECTION,
+    ACP_BACKENDS_AGENTCORE_GATEWAY,
     ACP_BACKENDS_INTERNAL_SANDBOX,
     ACP_BACKENDS_MEMBER_DISPATCH,
     ACP_BACKENDS_MODEL_VIA_CONFIG_OPTION,
@@ -3369,10 +3370,13 @@ class AcpClient:
         ``{name, type: http, url, headers}`` so kiro-cli deserializes them.
         """
         servers = pooled_session_servers(self._mcp_gateway_overlay, self._agent, self._channel_id)
-        if self._session_key:
+        if self._session_key and self.backend in ACP_BACKENDS_AGENTCORE_GATEWAY:
             from kiro_crew.platform.agentcore_gateway import session_gateway_servers
 
-            servers = [*servers, *session_gateway_servers(self._session_key)]
+            servers = [
+                *servers,
+                *session_gateway_servers(self._session_key, agent=self._agent or ""),
+            ]
         return servers
 
     def _resolve_session_mcp_servers(self) -> list[dict[str, Any]]:
