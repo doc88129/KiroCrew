@@ -170,7 +170,7 @@ SUBAGENT_TIMEOUT_MAX = 86400
 MARKER_CLOSERS = "]\u3011\uff3d\u3015"
 _MARKER_CLOSE_CLASS = "[" + re.escape(MARKER_CLOSERS) + "]"
 
-#: Markdown WRAPPER characters tolerated around a complete marker line (#9110).
+#: Markdown WRAPPER characters tolerated around a complete marker line.
 #: A model sometimes wraps the whole marker in inline code or emphasis --
 #: ``\`[OPTIONS: A | B]\``` or ``**[OPTIONS: A | B]**``. The wrapper character
 #: lands AFTER the closer, breaks the end anchor, and the marker leaks into the
@@ -351,7 +351,7 @@ OPTIONS_RE_TRAILER = re.compile(
 # Agent control tags ride in HTML comments, which the dashboard's markdown
 # pipeline renders as nothing (rehype-raw emits comment nodes the react
 # renderer skips). Three families exist in ``src/``:
-#   * ``<!-- keep-visible -->``       — collapse-all exemption (#7948)
+#   * ``<!-- keep-visible -->``       — collapse-all exemption
 #   * ``<!-- deliver:<route> -->``    — heartbeat routing
 #   * ``<!-- plan_task_id:<id> -->``  — task-planner Apply-to-Tasks anchor
 #
@@ -616,6 +616,7 @@ def split_trailing_protocol_suffix(text: str) -> tuple[str, str]:
 CRON_NOTIFY_PREFIX = "[Cron notification from "
 SUBAGENT_COMPLETION_PREFIX = "[Subagent completion event]"
 SUBAGENT_BATCH_COMPLETION_PREFIX = "[Subagent batch completion event]"
+AUTO_NUDGE_PREFIX = "[auto-nudge cycle "
 
 # Key under a completion message's ``meta`` where the gateway stamps the
 # structured header facts (outcome, tallies, chunk index, agent id) the
@@ -722,7 +723,7 @@ CHANNEL_SESSION_NAMESPACES: tuple[str, ...] = (
 #: and its channel ``session`` values. Derived ONCE here rather than subtracted at
 #: each reader: the same subtraction was spelled in three places, which is the
 #: drift shape that made a Webex owner DM unreachable while the gateway leg behind
-#: it already worked (#6514), one level up.
+#: it already worked, one level up.
 #:
 #: Two members of the roster cannot be a send target:
 #:

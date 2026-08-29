@@ -94,7 +94,7 @@ _COMPACT_NOTHING = "ℹ️ 当前没有可压缩的对话。"
 _COMPACT_DONE = "🗜️ 已压缩上下文。"
 _COMPACT_FAILED = "⚠️ 压缩失败，请重试。"
 #: This surface speaks Chinese; the wording translates
-#: ``messaging.commands.compact_unsupported_reply`` (#8156).
+#: ``messaging.commands.compact_unsupported_reply``.
 _COMPACT_AUTO_MANAGED = "ℹ️ 当前后端会自动压缩上下文，无需手动 /compact。"
 
 
@@ -185,7 +185,7 @@ class WeixinDispatcher:
         attachment_temp_paths: list[str] = []
         # Captured BEFORE ingestion, which clears ``inbound.attachments`` and
         # inlines the temp paths into the text. The durable inbound spool needs
-        # both originals (issue #2217): the count is what tells the restart
+        # both originals: the count is what tells the restart
         # notice this turn carried media that was not carried over, and the
         # pre-ingestion text is what the notice quotes -- the ingested form
         # holds paths to files that no longer exist.
@@ -274,7 +274,7 @@ class WeixinDispatcher:
         ``original_text`` / ``original_attachments`` are the pre-ingestion values,
         which this frame can no longer recover: ingestion clears
         ``inbound.attachments`` and rewrites the text with temp paths that are gone
-        after a restart. They exist for the durable inbound spool (issue #2217).
+        after a restart. They exist for the durable inbound spool.
         """
         assert self.client is not None
         # ── Mid-turn concurrency: check the CURRENT-generation key for an
@@ -312,7 +312,7 @@ class WeixinDispatcher:
             ChannelTurn(
                 channel_type="weixin",
                 session_key=session_key,
-                # Durable inbound spool (issue #2217): the peer id IS the reply
+                # Durable inbound spool: the peer id IS the reply
                 # target on this DM-only channel, and the reply's context_token
                 # is already persisted off-loop, so the restart notice can land.
                 # ``original_text`` with NO fallback to the ingested ``text``: the
@@ -356,6 +356,10 @@ class WeixinDispatcher:
                 after_persist=self._surface_own_session,
                 notice=lambda sk, provider: self._maybe_notice(user_id, sk, provider),
                 audit_caller=f"weixin:{user_id}",
+                principal_raw_id=user_id,
+                # Weixin is DM-only; a turn here cannot accept another
+                # human's mid-turn steer.
+                exclusive_principal=True,
             ),
             sessions=self.sessions,
             ctx_builder=self.ctx_builder,
@@ -520,7 +524,7 @@ class WeixinDispatcher:
         hard = getattr(self.cfg.weixin, "hard_threshold_pct", 95)
         soft = getattr(self.cfg.weixin, "soft_threshold_pct", 80)
         if pct >= soft:
-            # Capability gate (#8156): no forced compaction to run and the
+            # Capability gate: no forced compaction to run and the
             # soft nudge's /compact advice cannot work — the backend compacts
             # on its own as context fills.
             unsupported = compact_unsupported_backend(provider)

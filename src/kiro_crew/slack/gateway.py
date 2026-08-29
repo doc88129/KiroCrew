@@ -967,7 +967,7 @@ async def _await_cron_fire_time_gate(
 
 
 async def _pre_create_cron_slot(dashboard_state: "DashboardState", job: CronJob) -> None:
-    """Pre-create the job's first-run dashboard tab (#8336), best-effort.
+    """Pre-create the job's first-run dashboard tab, best-effort.
 
     :func:`ensure_cron_slot` gives a first run its tab — and with it its
     session-control caller identity and dashboard-surface routing — before
@@ -4644,7 +4644,7 @@ class GatewayOrchestrator:
                 await _alert_cron_failure(job, gate_reason, denied=True)
                 return None
 
-            # ── First-run tab pre-create (#8336) ──
+            # ── First-run tab pre-create ──
             # The result injection at the end of this callback used to be the
             # ONLY creator site for the job's dashboard tab, so during a NEW
             # job's first run the tab did not exist: session-control caller
@@ -5882,6 +5882,10 @@ class GatewayOrchestrator:
                     key, wait_if_busy=False
                 )
             _acquired = True
+            # Direct Slack nudge skips the dispatcher. Publish without bind
+            # after acquire so a concurrent human turn cannot have its
+            # principal cleared while it still holds the session.
+            await publish_turn_identity(self.sessions, key)
             _provider = self._cfg.agent.provider if hasattr(self, "_cfg") else "acp"
             full_msg, _ = await run_in_embed_pool(
                 self.ctx_builder.build_message, tagged, is_new, key, provider_type=_provider
@@ -6185,6 +6189,7 @@ class GatewayOrchestrator:
                 user_id=user_id,
                 conversation_id=conversation_id,
                 text=tagged,
+                bind_principal=False,
             )
             dispatch_kwargs: dict[str, Any] = {"interpret_commands": False}
             completion_hook = self._monitor_completion_hook(loop)
@@ -6301,6 +6306,7 @@ class GatewayOrchestrator:
                 room_id=room_id,
                 text=tagged,
                 room_type=ROOM_DIRECT,
+                bind_principal=False,
             )
             await asyncio.wait_for(
                 dispatcher.handle_message(synthetic, interpret_commands=False),

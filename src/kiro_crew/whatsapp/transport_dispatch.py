@@ -365,7 +365,7 @@ class WhatsAppDispatcher:
                 # while the gateway was down would still receive the notice.
                 # Rather than teach the egress gate a roster it was never asked to
                 # hold, group routes are not declared and a refused group message
-                # degrades exactly as before this seam (tracked in #9144).
+                # degrades exactly as before this seam.
                 #
                 # The text is the PRE-INGESTION original the transport captured,
                 # not ``inbound.text`` (by now rewritten with attachment context
@@ -409,6 +409,8 @@ class WhatsAppDispatcher:
                     scope, sk, provider, unprompted=unprompted
                 ),
                 audit_caller=f"whatsapp:{inbound.user_id}",
+                principal_raw_id=inbound.user_id,
+                exclusive_principal=not group,
             ),
             sessions=self.sessions,
             ctx_builder=self.ctx_builder,
@@ -523,7 +525,7 @@ class WhatsAppDispatcher:
         may_speak = not unprompted and not delivery_is_muted(self.sessions, session_key, "whatsapp")
         wa = self.cfg.whatsapp
         if pct >= wa.soft_threshold_pct:
-            # Capability gate (#8156): no forced compaction to run and the
+            # Capability gate: no forced compaction to run and the
             # soft nudge's /compact advice cannot work — the backend compacts
             # on its own as context fills.
             unsupported = compact_unsupported_backend(provider)
