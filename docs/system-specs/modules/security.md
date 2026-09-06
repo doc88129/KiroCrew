@@ -1361,9 +1361,13 @@ accepts `gitlab.com` plus
 only exact operator-configured self-managed hosts and rechecks that allowlist on
 each probe; self-managed calls carry an explicit empty `GITLAB_TOKEN` scrub
 sentinel through environment construction so the shared minimal-environment
-builder cannot reintroduce the ambient token. GitLab
-and Azure execute only validated absolute `glab`/`az` binaries with minimal
-provider-scoped environments. The shared CLI transport strips ambient SSH and
+builder cannot reintroduce the ambient token. GitHub, GitLab,
+and Azure execute only validated absolute `gh`/`glab`/`az` binaries with minimal
+provider-scoped environments. Structured monitor probes require the canonical
+binary and its complete parent chain to be system-owned and non-writable by the
+gateway user, independent of the relaxed policy used by interactive provider
+surfaces, because the child can receive an ambient provider login or an
+invocation-scoped token. The shared CLI transport strips ambient SSH and
 language-runtime injection variables (including Python, virtualenv, Conda, and
 Node search paths), replaces inherited `PATH` with the platform's trusted system
 path when one exists, and routes the validated argv through
@@ -1390,6 +1394,25 @@ credential file and is denied to agent subprocesses. Bitbucket accepts only
 HTTPS Authorization header and are never placed in argv, monitor state, logs, or
 browser payloads. Azure DevOps Server and Bitbucket Data Center URLs fail before
 credentials or network access.
+
+The controller passes credential authority through the provider protocol on every
+probe. Each monitor persists its descriptive creation surface (`dashboard`,
+`channel`, or fail-closed `unknown`) separately from its storage binding. The surface
+does not grant credentials: the dashboard mutation boundary reserves an exact loop id
+and prepares a pending grant in the sandbox-hidden encrypted-vault directory before
+persistence, then activates that grant only after the monitor commit. Updates rebind
+the grant to the exact provider kind and target, and deletion or replacement revokes
+it. A failed revocation write places the id on an immediate process-local deny set;
+later credential checks retry the durable deletion and continue denying the id until
+it succeeds, so an unavailable store cannot leave an authorizing stale record in use.
+The controller requires an exact active grant before giving Azure or Bitbucket a gateway-owner
+credential snapshot, so an agent-written monitor record cannot forge dashboard
+authority. GitHub and GitLab explicitly retain the established authenticated `gh` and
+host-authorized `glab` behavior. That exception is an allowlist, so an added provider
+gets no channel access to gateway-owner credentials by default. Channel-bound Azure probes record a
+credential-free `denied` SEL event and return authorization failure before reading
+the credential store or Azure CLI state. Channel-bound Bitbucket probes never read
+the credential store and use anonymous HTTPS, which limits them to public targets.
 
 Pod environments scrub the loader's complete credential roster, including the
 Azure DevOps and Bitbucket source-provider credentials, before an isolated gateway
@@ -1422,7 +1445,8 @@ gateway's provider logins available to its own monitor probes while preventing a
 pod from inheriting the operator's persisted GitHub, GitLab, or Azure CLI identity through
 the intentionally shared process `HOME`; `pod down` reclaims all of those stores.
 
-Azure status and policy display labels and Bitbucket build-status labels are
+GitHub check records with blank provider labels retain their provider-derived state
+under a stable opaque identity. Azure status and policy display labels and Bitbucket build-status labels are
 provider-controlled text. The adapters replace them with stable, namespaced SHA-256
 identities before they enter canonical state, fingerprints, persistence, or a wake
 envelope; the display labels themselves never reach an unattended agent prompt.

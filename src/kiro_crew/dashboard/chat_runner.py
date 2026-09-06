@@ -729,7 +729,7 @@ async def _steer_policy_notice(
     notices.append(notice)
     # Display-only row, appended ONLY once the steer is actually on the wire: it
     # tells the person a policy blocked the call and why, rendered by the same
-    # blocked-tool card the recovery continuation used to produce. Nothing is
+    # blocked-tool card a recovery continuation would produce. Nothing is
     # queued and no turn is dispatched (the agent already has the reason), which
     # is why the marker's own copy does not claim a recovery. Appending it when
     # the steer had NOT been written would assert an explanation the model never
@@ -977,7 +977,7 @@ def _backfill_canonical_model(client: Any, provider: str) -> str:
     ``global.anthropic.claude-opus-4-8[1m]``) — not the alias the user picked —
     so backfilling it pins the slot to one profile + region. A session that once
     resolved to the 1M Opus profile then stays nailed to it across resumes even
-    when that profile is capacity-throttled, and the picker can no longer
+    when that profile is capacity-throttled, and the picker cannot
     dislodge the poisoned value (observed: every "model unavailable" throttle hit
     the profile-form id, never the dotted alias, which kiro routes with capacity
     awareness). So for non-``claude_code`` providers we DROP a profile-form id
@@ -1714,7 +1714,7 @@ def _mcp_server_name_is_ambiguous(server_name: str, safe_name: str) -> bool:
     ``server_name`` is stored REDACTED, because it is ACP-controlled and reaches
     chat content and the WS broadcast. :func:`_redact_acp_string` maps EVERY
     credential-shaped name onto one sentinel (``[REDACTED: credential]``), so once
-    redaction has fired the stored name no longer identifies a server: two
+    redaction has fired the stored name cannot identify a server: two
     unrelated servers can share it.
 
     Redaction firing at all is the exact test. A name that came through untouched
@@ -1755,8 +1755,8 @@ _RE_TRAILING_REQUEST_ID = re.compile(r"\(request_id:\s*[0-9a-fA-F-]+\)\s*$")
 #
 # A plain "Deny" suppresses the REST OF THE GROUP the user just refused: the
 # other tool calls the model dispatched from the same assistant message are part
-# of the same action, so re-prompting for each is nagging. The flag used to be
-# cleared only in the turn runner's ``finally``, which made its lifetime the
+# of the same action, so re-prompting for each is nagging. Clearing the flag
+# only in the turn runner's ``finally`` makes its lifetime the
 # whole TURN — so a call the model issued LATER in that turn, after taking the
 # denial as feedback and revising, was auto-denied without ever being shown
 # (issue #7681). That silently broke deny -> discuss -> revise -> retry.
@@ -1805,7 +1805,7 @@ def _emit_mcp_oauth_request(
     authorization — the process whose loopback listener and PKCE verifier the
     URL is redeemable against. It is stamped into the banner meta so the
     read-time gate (`_expire_dead_child_oauth_meta`) can withdraw the link the
-    moment that child is no longer the live one serving the slot, HOWEVER it
+    moment that child ceases to be the live one serving the slot, HOWEVER it
     ended: gateway restart, session reset, idle sweep, RSS recycle, or the
     child exiting on its own. An empty value stamps nothing, and an unstamped
     banner is judged dead on first read — the fail direction that removes a
@@ -1904,7 +1904,7 @@ def _emit_mcp_oauth_request(
     # A new authorize request for this server means kiro-cli started a FRESH
     # flow, and the loopback listener plus the PKCE verifier live in that flow —
     # so every still-open banner for the same server now points at a callback
-    # port that can no longer redeem anything. Retire them before appending, or
+    # port that cannot redeem anything. Retire them before appending, or
     # the older button stays live-looking forever and sends the browser to a
     # dead port that answers with a bare `/?code=…` page (issue #7580).
     #
@@ -5368,6 +5368,12 @@ async def _start_next_queued_turn(state: DashboardState, slot: _ChatSlot) -> boo
     directive_user_origin = bool(consumed) and all(
         item.get("_directive_user_origin") is True for item in consumed
     )
+    # Channel authority is the narrower credential boundary. If batching combines
+    # channel and dashboard entries, the whole turn must retain that boundary so a
+    # directive derived from either message cannot inherit dashboard-owner secrets.
+    directive_channel_origin = bool(consumed) and any(
+        item.get("_directive_channel_origin") is True for item in consumed
+    )
     if slot._stopping and not is_system_injection:
         slot.append(
             "error",
@@ -5570,6 +5576,7 @@ async def _start_next_queued_turn(state: DashboardState, slot: _ChatSlot) -> boo
     _run_kwargs: dict[str, Any] = {
         "_synthetic_payload": synthetic_payload,
         "_directive_user_origin": directive_user_origin,
+        "_directive_channel_origin": directive_channel_origin,
     }
     if _settleable or _delivery_callbacks:
         _run_kwargs["_on_consumed"] = _note_consumed
@@ -5802,6 +5809,7 @@ async def _run_chat(
     # issues from inside that wake is its own act. Cron, app and sub-agent
     # injections never set it.
     _directive_self_wake: bool = False,
+    _directive_channel_origin: bool = False,
     regenerate_hint: str = "",
     _on_consumed: "Callable[[bool], None] | None" = None,
     _on_irreversibly_consumed: "Callable[[], Awaitable[None] | None] | None" = None,
@@ -6181,6 +6189,7 @@ async def _run_chat(
                 _on_irreversibly_consumed if not _irreversible_consumption_reported else None
             ),
             directive_user_origin=_directive_user_origin,
+            directive_channel_origin=_directive_channel_origin,
         )
 
     # Model-activity marker for the poisoned-conversation streak ONLY:
@@ -6449,6 +6458,7 @@ async def _run_chat(
                     _prompt_depth=1,
                     _directive_user_origin=_directive_user_origin,
                     _directive_self_wake=_directive_self_wake,
+                    _directive_channel_origin=_directive_channel_origin,
                 )
             elif status == "blocked":
                 sel().log_tool_invocation(
@@ -8269,6 +8279,7 @@ async def _run_chat(
                             dict(_oob.get("args") or {}),
                             producer_is_user_facing=_directive_user_origin,
                             producer_is_self_wake=_directive_self_wake,
+                            producer_is_channel=_directive_channel_origin,
                         )
                         _record_terminal_question(_applied_kind, _applied_one)
                         logger.info(
@@ -8458,6 +8469,7 @@ async def _run_chat(
                                 _dir_args,
                                 producer_is_user_facing=_directive_user_origin,
                                 producer_is_self_wake=_directive_self_wake,
+                                producer_is_channel=_directive_channel_origin,
                             )
                             _record_terminal_question(_dir_tool, _applied_one)
                             _out = _redact_tool_field(_applied_one)

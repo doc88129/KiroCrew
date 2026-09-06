@@ -126,6 +126,31 @@ def _provider(*payloads: dict[str, object]) -> tuple[GitHubPullRequestProvider, 
     )
 
 
+def test_blank_check_label_keeps_the_provider_state_under_an_opaque_identity() -> None:
+    """A missing display label must not turn a successful check into unknown."""
+    provider, _runner = _provider(
+        _primary(
+            statusCheckRollup=[
+                {
+                    "__typename": "CheckRun",
+                    "name": "",
+                    "workflowName": "CI",
+                    "status": "COMPLETED",
+                    "conclusion": "SUCCESS",
+                }
+            ]
+        ),
+        _threads(),
+    )
+
+    result = provider.probe("https://github.com/owner/repo/pull/123")
+
+    passed = result.canonical["checks"]["passed"]
+    assert len(passed) == 1
+    assert passed[0].startswith("github_check:")
+    assert result.canonical["checks"]["unknown"] == []
+
+
 @pytest.mark.parametrize(
     ("raw", "expected"),
     [
@@ -293,7 +318,7 @@ def test_check_identity_is_redacted_before_it_enters_canonical_state() -> None:
     assert "id=secret" not in serialized
 
 
-def test_whitespace_only_check_degrades_to_unknown_without_failing_the_probe() -> None:
+def test_whitespace_only_check_retains_state_under_opaque_identity() -> None:
     provider, _ = _provider(
         _primary(
             statusCheckRollup=[
@@ -310,9 +335,9 @@ def test_whitespace_only_check_degrades_to_unknown_without_failing_the_probe() -
 
     result = provider.probe("https://github.com/owner/repo/pull/123")
 
-    assert result.observation.status is MonitorObservationStatus.PENDING
-    assert result.observation.reason_code == "checks_unknown"
-    assert result.canonical["checks"]["unknown"]
+    assert result.observation.status is MonitorObservationStatus.SUCCESS
+    assert result.observation.reason_code == "review_ready"
+    assert result.canonical["checks"]["passed"]
 
 
 def test_same_label_check_runs_remain_independent_without_order_affecting_fingerprint() -> None:

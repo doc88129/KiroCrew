@@ -274,7 +274,7 @@ async def inbound_permitted(
 
     A PURE cancellation is the one exemption, matching the native Slack route's
     ``!stop`` carve-out: a denied channel must still be able to halt a runaway
-    session it previously STARTED, and on a channel with no interactive buttons
+    session it may have STARTED, and on a channel with no interactive buttons
     (``max_buttons=0``) the typed cancel is the only affordance there is, so
     gating it makes the off-switch unreachable exactly when it is needed. Nothing
     else is exempt -- a restart is not a cancellation.
@@ -389,7 +389,14 @@ def build_directive_consumer(
         state: Any = getattr(dispatcher, "dashboard_state", None)
         if state is None:
             state = _ChannelDirectiveState(sessions=sessions)
-        result = await apply_session_directive(state, None, session_key, kind, args)
+        result = await apply_session_directive(
+            state,
+            None,
+            session_key,
+            kind,
+            args,
+            producer_is_channel=True,
+        )
         # The channel surface never renders tool results, so the applier's
         # confirmation has no user-facing sink here; this log is the operator's
         # record (the applier itself SEL-audits every outcome). Failures log at

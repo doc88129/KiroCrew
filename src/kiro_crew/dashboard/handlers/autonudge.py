@@ -473,6 +473,7 @@ async def api_monitor_create(request: web.Request) -> web.Response:
         caller=request.remote or "",
         monitor=config,
         replace_existing=False,
+        grant_owner_provider_credentials=True,
     )
     if error is not None:
         return _monitor_error(error, "monitor_create_denied", status=status)
@@ -545,6 +546,7 @@ async def api_monitor_update(request: web.Request) -> web.Response:
         patch=patch,
         source="dashboard",
         caller=request.remote or "",
+        grant_owner_provider_credentials=True,
     )
     if error is not None:
         return _monitor_error(error, "monitor_update_denied", status=status)
@@ -613,6 +615,8 @@ async def api_monitor_restart(request: web.Request) -> web.Response:
         monitor=monitor,
         expected_existing_monitor_id=loop.id,
         expected_existing_config_generation=monitor.config_generation,
+        creation_surface=monitor.creation_surface,
+        grant_owner_provider_credentials=True,
     )
     if error is not None:
         return _monitor_error(error, "monitor_restart_denied", status=status)
