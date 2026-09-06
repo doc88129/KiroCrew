@@ -81,7 +81,12 @@ export const CHUNK_BUDGETS = {
   // same drift again (~36 KB of English strings in four days). A feature PR
   // adding ~40 keys (#8307) trips it on its merge ref while main's own gate
   // stays green, so the ceiling moves back to the 5% convention.
-  t: 815 * KB, // measured 776.5 KB on main @ 9af9543b0 (~5% headroom)
+  // The structured-monitor dashboard adds 57 English keys, a measured 2.7 KB
+  // increase over main's 776.5 KB runtime chunk. That is expected catalog
+  // growth, not a new library reaching the runtime. Keep roughly 5% headroom,
+  // matching the `all` entry's convention above, so ordinary translated UI
+  // additions do not make this gate block unrelated descendants.
+  t: 819 * KB, // measured 779.2 KB with structured-monitor catalog additions
 
   // Pierre editor implementation (PR #4072 replaced Monaco, whose
   // 'editor.api2' chunk this entry set used to carry) -- the code-editor
