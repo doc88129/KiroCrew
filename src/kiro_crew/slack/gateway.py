@@ -65,6 +65,7 @@ from kiro_crew.autonudge import (
     is_channel_key,
     is_structured_monitor_loop,
     runtime_budget_exceeded,
+    terminal_notification_delivery_matches,
 )
 from kiro_crew.beacon import distribution
 from kiro_crew.channel_history import ChannelHistory
@@ -1094,8 +1095,8 @@ class _ClaimHandoff:
 class CronVetOverran(Exception):
     """The claim-time vet spent more than the allowance the deadline carries for it.
 
-    Starting the payload anyway is the harm: the remaining budget no longer
-    covers the subprocess bound plus
+    Starting the payload anyway is the harm: the remaining budget is smaller
+    than the subprocess bound plus
     :data:`~kiro_crew.cron._SUBPROC_CLEANUP_ALLOWANCE_SECS`, so the deadline
     would fire with the subprocess already running -- and a thread cannot be
     interrupted, so the overlap guard would clear while it runs on and the next
@@ -1193,7 +1194,7 @@ def _vet_at_claim_then(
     caller's backstop carries an allowance for it (:func:`_claim_backstop`), and
     an allowance is only a guarantee if the thing it covers cannot exceed it --
     so a vet that overruns refuses its payload instead of starting one whose
-    remaining margin no longer covers the subprocess and its teardown.  Measured
+    remaining margin cannot cover the subprocess and its teardown.  Measured
     on ``monotonic`` so a clock adjustment cannot make an overrun look fine.
     """
     started_at = time.monotonic()
@@ -6539,7 +6540,7 @@ class GatewayOrchestrator:
                     await self._audit_fire_refused(loop, turn_slot)
                 if (
                     current_slot is not turn_slot
-                    or getattr(turn_slot, "_closing", False)
+                    or bool(getattr(turn_slot, "_closing", False))
                     or mode_refused
                     or str(getattr(turn_slot, "memory_mode", "persistent")) != "persistent"
                 ):
@@ -6818,14 +6819,39 @@ class GatewayOrchestrator:
                     exc_info=True,
                 )
 
-        def _schedule_terminal_notification_delivery(
-            monitor_id: str,
-            outcome: MonitorOutcome,
-            stopped_at: float,
+        async def _deliver_terminal_notification(
+            loop: NudgeLoop,
+            terminal_key: tuple[str, MonitorOutcome, float],
         ) -> None:
-            task = asyncio.create_task(
-                _record_terminal_notification_delivery(monitor_id, outcome, stopped_at)
-            )
+            if not self._notify_nudge_expired(loop):
+                return
+            assert self.dashboard_state is not None
+            # notify() synchronously installs the append future before it
+            # returns. Capture that exact future before yielding so another
+            # notification cannot replace the state-wide pointer underneath
+            # this terminal generation.
+            persisted = self.dashboard_state.last_notification_persist
+            try:
+                if persisted is not None and not await persisted:
+                    logger.warning(
+                        "AutoNudge: terminal notification persistence failed for %s",
+                        terminal_key[0],
+                    )
+                    return
+            except Exception:
+                logger.warning(
+                    "AutoNudge: terminal notification persistence raised for %s",
+                    terminal_key[0],
+                    exc_info=True,
+                )
+                return
+            await _record_terminal_notification_delivery(*terminal_key)
+
+        def _schedule_terminal_notification(
+            loop: NudgeLoop,
+            terminal_key: tuple[str, MonitorOutcome, float],
+        ) -> None:
+            task = asyncio.create_task(_deliver_terminal_notification(loop, terminal_key))
             self._background_tasks.add(task)
             task.add_done_callback(self._background_tasks.discard)
 
@@ -6852,8 +6878,7 @@ class GatewayOrchestrator:
                     terminal_key = (loop.id, state.outcome, state.stopped_at)
                     if terminal_key not in notified_monitor_terminals:
                         notified_monitor_terminals.add(terminal_key)
-                        if self._notify_nudge_expired(loop):
-                            _schedule_terminal_notification_delivery(*terminal_key)
+                        _schedule_terminal_notification(loop, terminal_key)
             if self.dashboard_state and loop is not None:
                 loop_payload: dict[str, Any] = {
                     "id": loop.id,
@@ -6893,6 +6918,10 @@ class GatewayOrchestrator:
             on_monitor_tick=_monitor_tick,
         )
         controller = MonitorController(self.autonudge_svc, _fire_monitor)
+        # Timers can complete while start() awaits store repair. Install the
+        # observer first so that transition cannot fall between startup and
+        # terminal replay.
+        self.autonudge_svc.subscribe(_observer)
         await self.autonudge_svc.start()
         # A persisted terminal transition and its notification are separate
         # durable steps. Replay any notice not proven delivered; marking only
@@ -6911,12 +6940,14 @@ class GatewayOrchestrator:
                 }
             ):
                 terminal_key = (loop.id, loop.monitor.outcome, loop.monitor.stopped_at)
-                notified_monitor_terminals.add(terminal_key)
-                if not loop.monitor.terminal_notification_delivered and self._notify_nudge_expired(
-                    loop
-                ):
-                    await _record_terminal_notification_delivery(*terminal_key)
-        self.autonudge_svc.subscribe(_observer)
+                if terminal_key not in notified_monitor_terminals:
+                    notified_monitor_terminals.add(terminal_key)
+                    if not terminal_notification_delivery_matches(
+                        loop,
+                        loop.monitor.outcome,
+                        loop.monitor.stopped_at,
+                    ):
+                        _schedule_terminal_notification(loop, terminal_key)
 
     def _notify_nudge_expired(self, loop: NudgeLoop) -> bool:
         """Notify the user that a monitoring loop stopped at a terminal bound.
