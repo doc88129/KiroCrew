@@ -1202,8 +1202,18 @@ class TestStemWords:
         pin that against the stemmer directly rather than against itself.
         """
         words = {
-            "testing", "deployment", "shipped", "fixes", "running", "caches",
-            "relevance", "ranked", "lessons", "workspaces", "bug", "run",
+            "testing",
+            "deployment",
+            "shipped",
+            "fixes",
+            "running",
+            "caches",
+            "relevance",
+            "ranked",
+            "lessons",
+            "workspaces",
+            "bug",
+            "run",
         }
         direct = words | set(_get_snowball().stemWords(sorted(words)))
 
@@ -1889,9 +1899,7 @@ class TestVectorStoreConcurrency:
         thread: hammering _stem_words from many threads must neither raise nor
         diverge from the single-threaded result.
         """
-        vocab = [
-            f"word{i} running jumped happily nationalization {i}" for i in range(50)
-        ]
+        vocab = [f"word{i} running jumped happily nationalization {i}" for i in range(50)]
         word_sets = [set(v.split()) for v in vocab]
         expected = [_stem_words(ws) for ws in word_sets]
 
@@ -2820,6 +2828,13 @@ class _AuditingConnection:
         self._lock = lock
         self._violations = violations
 
+    def __enter__(self):
+        self._inner.__enter__()
+        return self
+
+    def __exit__(self, *exc):
+        return self._inner.__exit__(*exc)
+
     def _must_be_locked(self, sql: str) -> bool:
         if sql.lstrip().upper().startswith(self._DML):
             return True
@@ -2875,8 +2890,14 @@ class TestSharedConnectionLockDiscipline:
         assert store.search_episodic(query_text="findings doc", limit=3)
 
         # Semantic write, then an overwrite so _retire_stale_episodic runs.
-        assert store.set_semantic("project.notes.findings_doc", "v1 draft", 0.9, "consolidation") is None
-        assert store.set_semantic("project.notes.findings_doc", "v2 final", 0.9, "consolidation") is None
+        assert (
+            store.set_semantic("project.notes.findings_doc", "v1 draft", 0.9, "user_explicit")
+            is None
+        )
+        assert (
+            store.set_semantic("project.notes.findings_doc", "v2 final", 0.9, "user_explicit")
+            is None
+        )
 
         # Remaining writers: lessons (incl. embedding backfill), deletes, rotation.
         assert store.write_lesson("prefer explicit transactions over implicit ones").wrote is True
@@ -2951,7 +2972,7 @@ class TestSharedConnectionLockDiscipline:
             raise RuntimeError("cannot start a transaction within a transaction")
 
         store._retire_stale_episodic = _boom  # type: ignore[assignment]
-        assert store.set_semantic("pref.editor", "emacs", 0.9, "consolidation") is None
+        assert store.set_semantic("pref.editor", "emacs", 0.9, "user_explicit") is None
         entry = store.get_semantic("pref.editor")
         assert entry is not None
         assert entry["value_json"] == '"emacs"'
@@ -3029,9 +3050,21 @@ class TestSharedConnectionLockDiscipline:
         store._faiss_index = None  # deterministic: exercise the fallback tier
 
         fillers = [
-            "alpha", "bravo", "charlie", "delta", "echo",
-            "foxtrot", "golf", "hotel", "india", "juliet",
-            "kilo", "lima", "mike", "november", "oscar",
+            "alpha",
+            "bravo",
+            "charlie",
+            "delta",
+            "echo",
+            "foxtrot",
+            "golf",
+            "hotel",
+            "india",
+            "juliet",
+            "kilo",
+            "lima",
+            "mike",
+            "november",
+            "oscar",
         ]
         # Tokens {vim, editor, <filler>} give cosine ~0.82 against the retire
         # query "editor: vim" (tokens {editor, vim}) under the bag-of-words
@@ -3251,10 +3284,7 @@ class TestAsyncInitOffloadGuard:
         def _is_store_ctor(node: object) -> bool:
             return isinstance(node, ast.Call) and (
                 (isinstance(node.func, ast.Name) and node.func.id == "VectorMemoryStore")
-                or (
-                    isinstance(node.func, ast.Attribute)
-                    and node.func.attr == "VectorMemoryStore"
-                )
+                or (isinstance(node.func, ast.Attribute) and node.func.attr == "VectorMemoryStore")
             )
 
         # Pass 1: collect module-local bindings created from the constructor.
@@ -3308,9 +3338,7 @@ class TestAsyncInitOffloadGuard:
                     and self.async_stack[-1]
                 ):
                     receiver = func.value
-                    hit = (
-                        isinstance(receiver, ast.Name) and receiver.id in store_names
-                    ) or (
+                    hit = (isinstance(receiver, ast.Name) and receiver.id in store_names) or (
                         isinstance(receiver, ast.Attribute)
                         and receiver.attr in store_attrs
                         and isinstance(receiver.value, ast.Name)
@@ -3568,11 +3596,7 @@ class TestHandlerOffload1947:
                 # Offloaded forms pass the method as an OBJECT
                 # (asyncio.to_thread(store.get_events, ...)), which is an
                 # Attribute argument, not a Call, so they do not match here.
-                if (
-                    self.async_stack
-                    and isinstance(func, ast.Attribute)
-                    and func.attr in locked
-                ):
+                if self.async_stack and isinstance(func, ast.Attribute) and func.attr in locked:
                     violations.append(
                         f"{label} line {node.lineno} "
                         f"(async {self.async_stack[-1]}): inline .{func.attr}() call — "
@@ -3609,8 +3633,7 @@ class TestHandlerOffload1947:
         import ast
         import textwrap
 
-        seeded = textwrap.dedent(
-            """
+        seeded = textwrap.dedent("""
             async def handler(store):
                 return store.get_lessons()
 
@@ -3620,11 +3643,8 @@ class TestHandlerOffload1947:
             async def compliant(store):
                 import asyncio
                 return await asyncio.to_thread(store.get_lessons)
-            """
-        )
-        violations = self._find_inline_calls(
-            ast.parse(seeded), {"get_lessons"}, "<seeded>"
-        )
+            """)
+        violations = self._find_inline_calls(ast.parse(seeded), {"get_lessons"}, "<seeded>")
         assert len(violations) == 1
         assert "async handler" in violations[0]
         assert ".get_lessons()" in violations[0]
@@ -3639,9 +3659,7 @@ class TestHandlerOffload1947:
             if path.name == "vector_memory.py":
                 continue  # the store may call its own methods inline
             tree = ast.parse(path.read_text(encoding="utf-8"))
-            violations.extend(
-                self._find_inline_calls(tree, locked, str(path.relative_to(root)))
-            )
+            violations.extend(self._find_inline_calls(tree, locked, str(path.relative_to(root))))
         assert not violations, "\n".join(violations)
 
 
@@ -3837,7 +3855,9 @@ class TestSemanticWriteTimeEmbedding:
         # Legacy row written while the model was absent: NULL vector, but a
         # perfect keyword overlap with the query (key + value hit every word).
         assert (
-            store.set_semantic("pref.tokyo_travel_plans", "tokyo travel plans", 1.0, "user_explicit")
+            store.set_semantic(
+                "pref.tokyo_travel_plans", "tokyo travel plans", 1.0, "user_explicit"
+            )
             is None
         )
         # Embedded row: zero keyword overlap, perfect vector match ("nippon"
@@ -3920,8 +3940,9 @@ class TestPromotionSkipIsObservable:
         import logging
         from unittest.mock import patch
 
-        store = VectorMemoryStore(db_path=tmp_path / "mem.db")
+        store = VectorMemoryStore(db_path=tmp_path / "mem.db", embedding_dim=8)
         store.init()
+        store._faiss_index = None  # keep the promotion corpus independent of optional dedup
         store.embed_fn = lambda text: [1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
 
         for i in range(3):
@@ -3958,8 +3979,9 @@ class TestPromotionSkipIsObservable:
         import logging
         from unittest.mock import patch
 
-        store = VectorMemoryStore(db_path=tmp_path / "mem.db")
+        store = VectorMemoryStore(db_path=tmp_path / "mem.db", embedding_dim=8)
         store.init()
+        store._faiss_index = None  # keep the promotion corpus independent of optional dedup
         store.embed_fn = lambda text: [1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
 
         for i in range(3):
@@ -3993,8 +4015,9 @@ class TestPromotionSkipIsObservable:
 
         import kiro_crew.vector_memory as vm_mod
 
-        store = VectorMemoryStore(db_path=tmp_path / "mem.db")
+        store = VectorMemoryStore(db_path=tmp_path / "mem.db", embedding_dim=8)
         store.init()
+        store._faiss_index = None  # keep the promotion corpus independent of optional dedup
         store.embed_fn = lambda text: [1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
 
         for i in range(3):

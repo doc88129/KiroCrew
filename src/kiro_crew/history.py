@@ -178,6 +178,12 @@ SLOT_OWNED_META_KEYS: frozenset[str] = frozenset(
         "autocompact_pct",
         "mode",
         "workspace",
+        # Slot-owned so ABSENCE can retract it. A crew rebound from a named
+        # memory store back to the default writes no key at all, and an unowned
+        # key is carried forward forever by ``carry_unowned_metadata`` -- so the
+        # rebind would be un-erasable and the session would keep consolidating
+        # into the silo it left.
+        "memory_store",
         "project",
         # Remote-execution binding: owned by the slot, so clearing it in memory
         # clears it on disk. Left unowned, a rebind or an unbind would be undone

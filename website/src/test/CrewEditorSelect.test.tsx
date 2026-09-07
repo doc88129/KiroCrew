@@ -244,7 +244,7 @@ async function openCreate(): Promise<HTMLElement> {
 }
 
 describe('crew editor — collision warning', () => {
-  it('warns as soon as the picker points at a store another crew uses', async () => {
+  it('warns when workspace overlaps while memory identity stays immutable', async () => {
     // Reading the PERSISTED binding here meant the warning only appeared after
     // a save and a reopen — by which point the collision it exists to prevent
     // has already happened.
@@ -265,8 +265,8 @@ describe('crew editor — collision warning', () => {
     // steps, which is also what a real browser does — the same interaction is
     // proven end-to-end in scripts/verify-crews-dialog-select.mjs.
     const user = userEvent.setup()
-    await user.click(within(sheet).getByRole('combobox', { name: 'Memory Store' }))
-    await user.click(await screen.findByRole('option', { name: 'core-mem' }))
+    await user.click(within(sheet).getByRole('combobox', { name: 'Workspace' }))
+    await user.click(await screen.findByRole('option', { name: 'core-ws' }))
 
     // kirocrew is already on core-mem, so the warning must name it immediately.
     await waitFor(() =>
@@ -280,9 +280,9 @@ describe('crew editor — collision warning', () => {
     // sharing count with no pill on the node that caused it.
     fireEvent.click(within(sheet).getByTestId('crew-rail-overview'))
     await waitFor(() =>
-      expect(within(sheet).getByTestId('crew-wire-memory')).toHaveTextContent('Shared'),
+      expect(within(sheet).getByTestId('crew-wire-workspace')).toHaveTextContent('Shared'),
     )
-    expect(within(sheet).getByTestId('crew-wire-workspace')).not.toHaveTextContent('Shared')
+    expect(within(sheet).getByTestId('crew-wire-memory')).not.toHaveTextContent('Shared')
   })
 })
 

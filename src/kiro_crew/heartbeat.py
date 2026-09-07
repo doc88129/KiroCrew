@@ -16,7 +16,7 @@ from collections import Counter
 from pathlib import Path
 from typing import TYPE_CHECKING, Callable, Coroutine
 
-from kiro_crew import platform_compat, shutdown_event
+from kiro_crew import memory_backup, platform_compat, shutdown_event
 from kiro_crew.atomic_write import atomic_write
 from kiro_crew.config.loader import KiroCrewConfig
 from kiro_crew.executors import maintenance_executor
@@ -40,6 +40,12 @@ _KEEP_RE = re.compile(_KEEP_SENTINEL, re.IGNORECASE)
 _DEFAULT_INTERVAL = 60
 _FTS_REBUILD_TICKS = 15  # rebuild every 15 ticks (15 min at 60s interval)
 _PRUNE_TICKS = 1440  # prune old history once per day (1440 min at 60s interval)
+# Memory backup runs on its OWN counter, offset from _PRUNE_TICKS rather than sharing
+# it: pruning history and copying every store are both minutes-long on a large
+# install, and landing them on the same tick puts two of four maintenance workers on
+# the same second once a day. The offset costs nothing and keeps them apart.
+_MEMORY_BACKUP_TICKS = 1440
+_MEMORY_BACKUP_OFFSET = 30
 # Per-task hard deadline for an unattended heartbeat turn. Mirrors cron's
 # _JOB_TIMEOUT_SECS (1800s / 30 min): a heartbeat turn runs without a human
 # present, so it MUST be bounded — otherwise a single non-allowlisted tool
@@ -230,9 +236,54 @@ class HeartbeatService:
                 except Exception:
                     pass
 
+        if self._tick % _MEMORY_BACKUP_TICKS == _MEMORY_BACKUP_OFFSET:
+            await self._back_up_memory()
+
         # Check for idle sessions needing history consolidation (every tick)
         if self._consolidator:
             self._consolidator.check_idle_sessions()
+
+    async def _back_up_memory(self) -> None:
+        """Take a rotating copy of every declared memory store.
+
+        Offloaded to ``maintenance_executor`` because the SQLite backup API is blocking
+        and copies the whole file; on the event loop a large store would stall every
+        task. Same pool and same rationale as ``prune_history`` above — it terminates,
+        it is awaited so it cannot overlap itself, and it fires once a day.
+
+        Guarded so a backup failure cannot take the heartbeat down, and logged at
+        WARNING rather than debug: a dead backup means durability silently stops, which
+        is the whole failure this exists to prevent, so it has to be alarmable.
+        """
+        try:
+            cfg = KiroCrewConfig.load().memory
+            if not cfg.backup_enabled:
+                return
+            keep = int(cfg.backup_keep)
+            loop = asyncio.get_running_loop()
+            result = await loop.run_in_executor(
+                maintenance_executor(),
+                functools.partial(memory_backup.back_up_all_stores, keep),
+            )
+            if result["failed"]:
+                # WARNING on its own, so a store whose copy fails every pass is
+                # alarmable. Durability stopping quietly is the failure this exists to
+                # prevent, and an INFO line among the copied counts is not visible.
+                logger.warning(
+                    "Memory backup: %d store(s) FAILED to copy (%d copied, %d skipped)",
+                    result["failed"],
+                    result["backed_up"],
+                    result["skipped"],
+                )
+            elif result["backed_up"]:
+                logger.info(
+                    "Memory backup: %d store(s) copied, %d old removed, %d skipped",
+                    result["backed_up"],
+                    result["pruned"],
+                    result["skipped"],
+                )
+        except Exception:
+            logger.warning("Memory backup pass failed", exc_info=True)
 
     async def _run_one_task(self, task_text: str, deliver: str) -> str | None:
         """Execute a single heartbeat task (used by gather).

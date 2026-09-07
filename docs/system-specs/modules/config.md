@@ -204,6 +204,122 @@ The parent directory is created on first call if it doesn't exist.
 
 The CLI (`cli.py:main()`) auto-detects and sets the env var at startup.
 
+## Named Memory Stores (`memory_stores.py`)
+
+The reserved `agents.default` assistant uses the existing Global Memory **V1**.
+Every other named `agents` entry is a Crew Member and must own exactly one private
+**V2** memory store. Changing `default_agent` to a member selects that member; it
+does not make the member's memory global. A materialized provider template which
+is not a Crew Member continues to use V1.
+
+### Separate files preserve V1
+
+| Resolver | Global `default` | Private named store |
+|---|---|---|
+| `memory_store_dir_for` | `<home>/workspace/` | `<home>/memory_stores/<name>/` |
+| `resolve_store_path` | `<home>/memory.db` | `<home>/memory_stores/<name>/memory.db` |
+| `memory_index_path_for` | `<home>/memory_index.db` | `<home>/memory_stores/<name>/memory_index.db` |
+
+The markdown root contains `memory/preferences.md`, `memory/projects.md` and
+`memory/history/`. It is not the default vector/index directory. No path is
+renamed and no V1 data is migrated, copied or algorithmically converted on member
+creation. Private stores begin empty. Explicit selected-content inheritance and
+its provenance are owned by [memory-skills-hooks](memory-skills-hooks.md).
+
+### Private ownership and creation
+
+`MemoryStoreConfig.owner_member` identifies the sole owning config alias;
+`memory_version` is `2` for private member stores, and defaults to `1` for legacy
+or manually declared stores. A private store also has a bounded
+`member-memory.json` manifest with the same owner and version. Runtime resolution
+checks both records and refuses a store bound by any other member.
+
+`provision_member_memory(config, member)` allocates an exclusive random directory
+named `member-<slug>-<uuid>`, writes the ownership manifest, initializes an empty V2
+SQLite database, then updates the loaded config. The member is published only
+after initialization succeeds. Directory creation uses `exist_ok=False`, so neither concurrent creations
+nor a reused display name can adopt another directory's contents. Parent and
+child directories receive owner-only permissions. It never resets an existing
+private store or copies the former binding's data.
+
+`POST /api/agents` and `kirocrew agent create` provision automatically; installed
+agent sync provisions newly discovered members too. An absent, empty or `default`
+create field is accepted for client compatibility and requests automatic private
+allocation. A supplied named store is rejected. `PUT /api/agents/{name}` and CLI
+update reject rebinding: an echoed current store is accepted, another identity
+(including global) is not.
+
+Legacy members require a deliberate empty initialization via
+`PUT /api/agents/{name}` with `provision_memory: true`, or
+`kirocrew agent update <name> --provision-memory`. Their previous global or named
+memory remains untouched. Unchanged legacy bindings permit unrelated metadata
+edits, including description and avatar; execution still refuses them until
+explicit initialization. Broken existing V2 ownership requires recovery instead
+of another automatic allocation.
+
+Member create/update publish only the member and its store record through
+`persist_member_config` and the cross-process `update_config_locked` primitive.
+The write rechecks duplicate creation, expected prior binding and ownership under
+the lock, retaining unrelated settings written by another caller. A failed or
+competing publication may leave an unreferenced empty store; it cannot expose
+it as a member's memory. The existing installed-agent sync remains a batch config
+save and is serialized with dashboard config edits by the handler lock.
+
+### Exact resolution and explicit failures
+
+`resolve_declared_store` either returns the requested declared name or raises
+`UnknownMemoryStore`. There is no named-store fallback to `default_memory_store`
+or to V1. `default_memory_store` remains readable for config compatibility but is
+not a repair target for private memory.
+
+`require_memory_store(store, config=..., require_directory=True)` additionally opens
+the directory and validates V2 ownership and the existing SQLite file header.
+A deleted/unreadable directory or database is an error, not permission to
+recreate empty memory. `require_member_memory_store`
+requires the member's unique V2 binding; only the reserved default assistant gets
+V1. Invalid legacy bindings report the explicit initialization action. Callers
+must propagate these failures rather than normalizing them into an absent binding.
+
+`resolve_agent_identity` is a metadata-only helper for member labels and model
+display; it grants no memory access. Sandboxed MCP advisory selection calls
+`resolve_agent_bindings(..., validate_memory_files=False)` because member files
+are hidden there. The flag skips all private filesystem probes while retaining
+config ownership checks. Trusted gateway execution uses the default strict file
+validation before accepting the selected member.
+
+Store names are lowercase letters, digits and hyphens, 1–80 characters, with no
+leading/trailing hyphen, path separators, Windows device basename, trailing dot or
+space. Malformed config declarations are reported and preserved; no sanitization
+can silently merge identities. Composed paths are checked for exact identity
+under `memory_stores/`, refusing links to either a sibling or an external store.
+
+`memory_store_version(store)` reads only the bounded ownership manifest without
+loading config, so vector initialization can positively select V2 algorithms.
+Global, unrecognized and unowned legacy stores answer `1`. This version query is
+not an authorization gate; execution still validates the config binding.
+
+The entire `memory_stores/` subtree is read/write fenced from agent file tools.
+See [security](security.md) for the enforced boundary and shell-access limits,
+and [memory-skills-hooks](memory-skills-hooks.md#memory-across-surfaces-and-channels)
+for how trusted execution carries the member binding.
+
+## Workspace fall-through is logged
+
+`workspace_dir_for(name)` also reads the LOADED config's `workspaces` table rather
+than the raw bytes, so it and `resolve_agent_bindings` cannot answer the same
+question two ways. An unmapped name falls back to `default_workspace` and then to
+`WorkspaceConfig().dir`, and the fall-through is logged: two DISTINCT names both
+resolving to `<home>/workspace` warns, because that is how a workspace split becomes
+a shared tree nobody notices. An install that simply has no `workspaces` section is
+the ordinary fresh state and logs at debug. It **never raises** —
+`default_project_dir` and the workspace-identity block are built on it, so a raise
+would break a fresh install and take both with it.
+
+Consequence worth knowing: a legacy FLAT `{"name": "dir"}` workspaces entry is a
+type mismatch the schema validator removes before the loader sees it, so such an
+entry is absent from the loaded table. `resolve_agent_bindings` has always answered
+from that table; `workspace_dir_for` now agrees with it.
+
 ## Superseded Defaults (reported, never rewritten)
 
 `config.json` is a full materialization of the schema -- every field is written to

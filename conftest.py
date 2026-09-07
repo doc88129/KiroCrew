@@ -133,6 +133,96 @@ import pytest
 # through monkeypatch.
 os.environ.pop("KIROCREW_ACP_RECORD_FRAMES", None)
 
+# ── The data-home floor, installed at IMPORT time ────────────────────────────
+#
+# Every per-test redirect of ``KIROCREW_HOME`` is a value laid over whatever the
+# process started with, so the danger is never a wrong value -- it is the ABSENCE
+# of one. ``config.paths._valid_override_home`` reads the variable and, finding it
+# unset, falls through to ``_default_home()``: the operator's real ``~/.kiro/crew``.
+# Anything that can return the variable to "unset" mid-session therefore aims the
+# whole suite at live data, and a single ``monkeypatch.undo()`` on the shared
+# function-scoped instance does exactly that -- it reverts every patch on that
+# stack, including a redirect some fixture installed. One such undo truncated an
+# operator's real 36 MB ``memory.db`` to 29 bytes, with no backup.
+#
+# Setting the variable HERE, before pytest imports a fixture or a test module,
+# removes "unset" from the set of reachable states: an undo restores the value the
+# process started with, which is now this scratch directory rather than nothing.
+# That closes the entire class at the process level, so it holds no matter which
+# fixture owns a redirect, whether that fixture used a private ``MonkeyPatch``, or
+# what a future test does to the shared one.
+#
+# An operator's own ``KIROCREW_HOME`` is honoured untouched: someone running the
+# suite against a deliberately chosen home keeps it, and only the unset case --
+# the one that resolves to live data -- is given a floor.
+# ``mkdtemp``, never ``mkdir(exist_ok=True)`` on a pid-derived name -- the same rule
+# :func:`_create_tmp_root` states and for the same reason: a pid-derived name is
+# PREDICTABLE, so another local account can pre-create it as a SYMLINK to a directory
+# it controls, and ``exist_ok=True`` succeeds against a symlink-to-directory. This
+# directory becomes the data home the whole session falls back to, so every secret,
+# token and ``memory.db`` the suite fabricates would land where that account chose.
+# ``mkdtemp`` creates with O_EXCL at mode 0700 and fails rather than adopting.
+_HOST_HOME_FLOOR: "pathlib.Path | None" = None
+if not os.environ.get("KIROCREW_HOME"):
+    _HOST_HOME_FLOOR = pathlib.Path(tempfile.mkdtemp(prefix="kirocrew-test-floor-"))
+    os.environ["KIROCREW_HOME"] = str(_HOST_HOME_FLOOR)
+
+    @atexit.register
+    def _remove_host_home_floor() -> None:
+        """Remove the floor, so it does not accumulate or trip the residue reporter.
+
+        The suite's own temp-residue check reports anything that outlives a run, and
+        ``KIROCREW_TMP_RESIDUE_STRICT`` turns that report into a failure -- attributed
+        to whichever test happened to be last, not to this floor.
+        """
+        if _HOST_HOME_FLOOR is not None:
+            shutil.rmtree(_HOST_HOME_FLOOR, ignore_errors=True)
+
+
+#: The homes a test must never resolve. ``~/.kirocrew`` is the deprecated location and
+#: is listed because it still holds real data on installs predating the move.
+#:
+#: Spelled literally rather than read from ``config.paths``, because this module is
+#: imported before every collection and must not pull ``kiro_crew`` in at import time.
+#: ``test_the_guarded_homes_match_what_the_product_resolves`` cross-checks these two
+#: against the product's own resolvers, so the literals cannot drift unnoticed.
+_REAL_DATA_HOMES = (
+    pathlib.Path.home() / ".kiro" / "crew",
+    pathlib.Path.home() / ".kirocrew",
+)
+
+
+def _refuse_a_real_data_home() -> None:
+    """Refuse to run at all if the session would resolve a real data home.
+
+    A second, independent barrier to the floor above, and the one that fails LOUD.
+    The floor prevents the accident; this catches the case where someone exports
+    ``KIROCREW_HOME`` to their real home by hand -- copying a command out of a
+    runbook, or reusing a shell that was pointed at live data -- which no amount of
+    per-test isolation can distinguish from a deliberate choice.
+
+    Called from ``pytest_configure`` rather than being a second hook of that name:
+    a module defines one, and a duplicate silently replaces the earlier definition
+    instead of running alongside it.
+    """
+    resolved = pathlib.Path(os.environ["KIROCREW_HOME"]).expanduser()
+    for real in _REAL_DATA_HOMES:
+        try:
+            here, live = resolved.resolve(), real.resolve()
+        except OSError:  # an unreadable component cannot be the live home
+            continue
+        # CONTAINMENT in both directions, not equality. A PARENT is the dangerous
+        # miss: ``~/.kiro`` is kiro-cli's own home and resolves the whole live tree
+        # underneath it, and ``~`` resolves everything. A CHILD is refused too, since
+        # the suite deletes directories it believes it created.
+        if here == live or live in here.parents or here in live.parents:
+            raise pytest.UsageError(
+                f"KIROCREW_HOME points at the live data home {real}. The suite writes, "
+                f"truncates and deletes under it, so running here destroys real memory, "
+                f"sessions and config. Unset KIROCREW_HOME or point it at a scratch dir."
+            )
+
+
 # ── Hypothesis example database (rootdir floor) ─────────────────────────────
 # ``test/conftest.py`` registers the "default"/"thorough" profiles but never sets
 # ``database=``, so hypothesis falls back to its own default: ``.hypothesis/examples``
@@ -391,6 +481,23 @@ def _refuse(reason: str, argv: object) -> None:
     )
 
 
+@pytest.fixture
+def _host_floor_patch(monkeypatch):
+    """Keep host guards off the test's undo stack, with ordered teardown.
+
+    A test may undo its own patches without removing the path redirects or spawn
+    guards. At teardown its overrides must unwind BEFORE the floor: otherwise a
+    shared undo can reinstall a stale per-test path after the floor restored the
+    original value. All consumers finish before this fixture, so draining the
+    shared stack here preserves that nesting; pytest's later undo is then empty.
+    """
+    with pytest.MonkeyPatch.context() as pin:
+        try:
+            yield pin
+        finally:
+            monkeypatch.undo()
+
+
 @pytest.fixture(scope="session")
 def _xdg_config_root(tmp_path_factory):
     """One tmp dir per session (per xdist worker) to stand in for ``~/.config``.
@@ -404,7 +511,7 @@ def _xdg_config_root(tmp_path_factory):
 
 
 @pytest.fixture(autouse=True)
-def _isolate_xdg_config_home(_xdg_config_root, monkeypatch):
+def _isolate_xdg_config_home(_xdg_config_root, _host_floor_patch):
     """Point ``$XDG_CONFIG_HOME`` at a tmp dir so no test writes a real unit file.
 
     ``dev_fleet._dropin_path()`` resolves the make-live systemd drop-in as
@@ -423,11 +530,11 @@ def _isolate_xdg_config_home(_xdg_config_root, monkeypatch):
     A test that wants its own value still wins — it sets XDG later, and reverts
     independently.
     """
-    monkeypatch.setenv("XDG_CONFIG_HOME", str(_xdg_config_root))
+    _host_floor_patch.setenv("XDG_CONFIG_HOME", str(_xdg_config_root))
 
 
 @pytest.fixture(autouse=True)
-def _isolate_launchd_paths(_xdg_config_root, monkeypatch):
+def _isolate_launchd_paths(_xdg_config_root, _host_floor_patch):
     """Pin the launchd install paths, which ``$XDG_CONFIG_HOME`` cannot reach.
 
     The macOS half of Make Live does not resolve through XDG at all. Its paths are
@@ -493,14 +600,14 @@ def _isolate_launchd_paths(_xdg_config_root, monkeypatch):
         except Exception:  # pragma: no cover - a partial checkout must not break collection
             continue
         for attr, value in attrs.items():
-            monkeypatch.setattr(imported, attr, value, raising=False)
+            _host_floor_patch.setattr(imported, attr, value, raising=False)
 
     for name, attrs in lazy.items():
         already = sys.modules.get(name)
         if already is None:
             continue
         for attr, value in attrs.items():
-            monkeypatch.setattr(already, attr, value, raising=False)
+            _host_floor_patch.setattr(already, attr, value, raising=False)
 
 
 #: Originals of the sandbox-sweep functions the host-isolation floor patches,
@@ -528,7 +635,7 @@ def _sandbox_mount_source_root(tmp_path_factory):
 
 
 @pytest.fixture(autouse=True)
-def _isolate_sandbox_mount_source_roots(_sandbox_mount_source_root, monkeypatch):
+def _isolate_sandbox_mount_source_roots(_sandbox_mount_source_root, _host_floor_patch):
     """Point the sandbox mount-source sweep away from the host's real tmpfs.
 
     ``sandbox._cleanup_stale_sandbox_mount_sources()`` -- reached from every
@@ -563,7 +670,7 @@ def _isolate_sandbox_mount_source_roots(_sandbox_mount_source_root, monkeypatch)
     _SANDBOX_SWEEP_ORIGINALS.setdefault(
         "_mount_source_candidate_roots", sandbox_mod._mount_source_candidate_roots
     )
-    monkeypatch.setattr(
+    _host_floor_patch.setattr(
         sandbox_mod,
         "_mount_source_candidate_roots",
         lambda: [str(_sandbox_mount_source_root)],
@@ -579,7 +686,7 @@ def _isolate_sandbox_mount_source_roots(_sandbox_mount_source_root, monkeypatch)
     _SANDBOX_SWEEP_ORIGINALS.setdefault(
         "_mount_pinned_source_names", sandbox_mod._mount_pinned_source_names
     )
-    monkeypatch.setattr(
+    _host_floor_patch.setattr(
         sandbox_mod,
         "_mount_pinned_source_names",
         lambda proc_root="/proc", **_kw: (set(), False),
@@ -594,7 +701,7 @@ def _isolate_sandbox_mount_source_roots(_sandbox_mount_source_root, monkeypatch)
     # that forgets to fix its answer gets an INERT sweep (coverage unproven ->
     # removes nothing, stamps nothing) rather than one reading host /proc.
     _SANDBOX_SWEEP_ORIGINALS.setdefault("_launcher_tmpfs_roots", sandbox_mod._launcher_tmpfs_roots)
-    monkeypatch.setattr(
+    _host_floor_patch.setattr(
         sandbox_mod,
         "_launcher_tmpfs_roots",
         lambda: [str(_sandbox_mount_source_root)],
@@ -610,11 +717,11 @@ def _isolate_sandbox_mount_source_roots(_sandbox_mount_source_root, monkeypatch)
             coverage.covered = False
         return (set(), False)
 
-    monkeypatch.setattr(sandbox_mod, "_bound_source_basenames", _unproven_bound_sources)
+    _host_floor_patch.setattr(sandbox_mod, "_bound_source_basenames", _unproven_bound_sources)
 
 
 @pytest.fixture(autouse=True)
-def _pin_kill_and_reap_group_probe(monkeypatch):
+def _pin_kill_and_reap_group_probe(_host_floor_patch):
     """Stop ``kill_and_reap``'s group-kill skip from reading host process state.
 
     ``platform_compat.kill_and_reap()`` skips the process-GROUP kill when the
@@ -649,7 +756,7 @@ def _pin_kill_and_reap_group_probe(monkeypatch):
         platform_compat = importlib.import_module("kiro_crew.platform_compat")
     except Exception:  # pragma: no cover - a partial checkout must not break collection
         return
-    monkeypatch.setattr(platform_compat, "_shares_own_process_group", lambda _pid: False)
+    _host_floor_patch.setattr(platform_compat, "_shares_own_process_group", lambda _pid: False)
 
 
 @pytest.fixture(autouse=True)
@@ -698,7 +805,7 @@ def _no_credential_env_residue():
 
 
 @pytest.fixture(autouse=True)
-def _scrub_inherited_preload_env(monkeypatch):
+def _scrub_inherited_preload_env(_host_floor_patch):
     """Hide the entries ``name_grant`` refuses as inherited preloads, then restore them.
 
     RHEL-family distributions (Amazon Linux 2023, RHEL, CentOS Stream, Fedora) ship
@@ -730,17 +837,13 @@ def _scrub_inherited_preload_env(monkeypatch):
     79-failure pattern this fixture exists to remove, as a wall of wrong refusal
     codes instead of one clear error.
 
-    The removals are recorded on the test's shared ``monkeypatch`` instance rather
-    than hand-rolled, and that is load-bearing, not convenience. Same-scope autouse
-    fixtures are ordered so that OTHER monkeypatch users run first (alphabetically in
-    practice), so a hand-rolled save/restore here tears down BEFORE monkeypatch's
-    undo -- and for a test that ``monkeypatch.setenv``-overrides the SAME key the
-    host inherited (recorded "was absent", because this scrub had removed it), the
-    undo then deletes the inherited value the hand-rolled restore had just put back,
-    leaking the removal out of the test. On one shared undo stack the nesting is
-    correct BY CONSTRUCTION: the test's later record is undone first (its delete
-    tolerates the key already being gone), then this fixture's ``delenv`` record
-    restores the inherited value. ``test_name_grant.py::TestInheritedHostEnvironment``
+    The removals use the private host-floor stack. A shared ``monkeypatch.undo()``
+    cannot restore an inherited preload during the test. At teardown
+    ``_host_floor_patch`` drains the test's shared stack before restoring this one:
+    an override of the SAME inherited key first reverts to "absent", and only then
+    does this fixture's ``delenv`` record restore the inherited value. Reversing
+    those steps would delete the restored host value and leak the scrub into the
+    next test. ``test_name_grant.py::TestInheritedHostEnvironment``
     pins exactly that same-key case, and
     ``test_host_isolation_floor.py::TestInheritedShellEnvironmentIsScrubbed`` drives
     one real cycle of this fixture directly.
@@ -765,7 +868,7 @@ def _scrub_inherited_preload_env(monkeypatch):
         return key.startswith(_BASH_FUNC_KEY_PREFIX) or value.startswith(_BASH_FUNC_VALUE_PREFIX)
 
     for key in [k for k, v in os.environ.items() if _is_inherited_preload(k, v)]:
-        monkeypatch.delenv(key)
+        _host_floor_patch.delenv(key)
     try:
         yield
     finally:
@@ -774,7 +877,7 @@ def _scrub_inherited_preload_env(monkeypatch):
 
 
 @pytest.fixture(autouse=True)
-def _block_host_service_mutation(request, monkeypatch):
+def _block_host_service_mutation(request, _host_floor_patch):
     """Fail loudly if a test really starts, stops, or reconfigures a service.
 
     Redirecting ``$XDG_CONFIG_HOME`` above stops a test from *writing* a real
@@ -853,14 +956,14 @@ def _block_host_service_mutation(request, monkeypatch):
             "Stub the re-exec seam instead (e.g. live_target.maybe_reexec)."
         )
 
-    monkeypatch.setattr(subprocess.Popen, "__init__", guarded_popen_init)
-    monkeypatch.setattr(
+    _host_floor_patch.setattr(subprocess.Popen, "__init__", guarded_popen_init)
+    _host_floor_patch.setattr(
         asyncio.base_events.BaseEventLoop, "subprocess_exec", guarded_subprocess_exec
     )
-    monkeypatch.setattr(
+    _host_floor_patch.setattr(
         asyncio.base_events.BaseEventLoop, "subprocess_shell", guarded_subprocess_shell
     )
-    monkeypatch.setattr(os, "execve", guarded_exec)
+    _host_floor_patch.setattr(os, "execve", guarded_exec)
 
 
 # ── no systemd user session for the test process tree ─────────────────
@@ -1012,6 +1115,7 @@ def _prefer_short_tmp_base() -> None:
 
 def pytest_configure(config: pytest.Config) -> None:
     """Record the working directory pytest started in, before any test can move it."""
+    _refuse_a_real_data_home()
     _prefer_short_tmp_base()
     _redirect_hypothesis_database()
     global _SESSION_CWD
@@ -2106,8 +2210,20 @@ _isolation_dirs.seq = 0  # type: ignore[attr-defined]
 
 
 @pytest.fixture(autouse=True)
-def _isolate_kirocrew_home(_isolation_dirs, monkeypatch):
+def _isolate_kirocrew_home(_isolation_dirs, _host_floor_patch):
     """Pin ``KIROCREW_HOME`` and ``KIROCREW_WORKSPACE`` to per-test tmp dirs, for EVERY testpath.
+
+    The pin is applied through a PRIVATE ``pytest.MonkeyPatch`` instance, not the
+    shared function-scoped ``monkeypatch`` fixture. The shared instance is one undo
+    stack for every fixture and helper the test touched, so a test helper that calls
+    ``monkeypatch.undo()`` to revert its own patch also reverts THIS pin -- and every
+    path the test resolves afterwards lands in the operator's live ``~/.kiro/crew``.
+    That is not hypothetical: a memory-store test did exactly that and then wrote
+    ``b"this is not a sqlite database"`` over an operator's real 36 MB ``memory.db``,
+    which had no backup. With its own instance the pin can only be undone by this
+    fixture's teardown. ``_host_floor_patch`` owns the private instance and drains
+    the test's shared overrides before restoring the floor, so a later shared undo
+    cannot reinstall a stale per-test home.
 
     This lives at the rootdir rather than in ``test/conftest.py`` because the leak it
     closes is worst in the testpaths that conftest does not reach. The ~108 test
@@ -2163,15 +2279,15 @@ def _isolate_kirocrew_home(_isolation_dirs, monkeypatch):
     var fresh on every call and caches nothing, so there is no module-global memo to
     reset here -- setting the variable is the whole fix.
     """
-    monkeypatch.setenv("KIROCREW_HOME", str(_isolation_dirs("kirocrew-home")))
-    monkeypatch.setenv("KIROCREW_WORKSPACE", str(_isolation_dirs("workspace")))
-    monkeypatch.delenv("KIROCREW_PROJECT_DIR", raising=False)
-    monkeypatch.delenv("KIROCREW_BOUND_PORT", raising=False)
-    monkeypatch.delenv("KIROCREW_DEV_MODE", raising=False)
-    monkeypatch.delenv("KIROCREW_STRICT_ON_LOOP_PERSIST", raising=False)
+    _host_floor_patch.setenv("KIROCREW_HOME", str(_isolation_dirs("kirocrew-home")))
+    _host_floor_patch.setenv("KIROCREW_WORKSPACE", str(_isolation_dirs("workspace")))
+    _host_floor_patch.delenv("KIROCREW_PROJECT_DIR", raising=False)
+    _host_floor_patch.delenv("KIROCREW_BOUND_PORT", raising=False)
+    _host_floor_patch.delenv("KIROCREW_DEV_MODE", raising=False)
+    _host_floor_patch.delenv("KIROCREW_STRICT_ON_LOOP_PERSIST", raising=False)
     paths = sys.modules.get("kiro_crew.config.paths")
     if paths is not None:
-        monkeypatch.setattr(paths, "_resolved_home", None, raising=False)
+        _host_floor_patch.setattr(paths, "_resolved_home", None, raising=False)
 
 
 @pytest.fixture(autouse=True, scope="session")
@@ -2332,7 +2448,7 @@ _SHARED_KIRO_PATHS: tuple[tuple[str, str, str], ...] = (
 
 
 @pytest.fixture(autouse=True)
-def _isolate_shared_kiro_paths(_isolation_dirs, monkeypatch):
+def _isolate_shared_kiro_paths(_isolation_dirs, _host_floor_patch):
     """Redirect the import-time ``~/.kiro`` bindings to a per-test tmp tree.
 
     Patches only a module ALREADY in ``sys.modules``, the same tolerance
@@ -2361,7 +2477,7 @@ def _isolate_shared_kiro_paths(_isolation_dirs, monkeypatch):
         return
     root = _isolation_dirs("kiro-home")
     for module, attr, relative in targets:
-        monkeypatch.setattr(
+        _host_floor_patch.setattr(
             sys.modules[module], attr, root.joinpath(*relative.split("/")), raising=False
         )
 
@@ -2376,7 +2492,7 @@ def _isolate_shared_kiro_paths(_isolation_dirs, monkeypatch):
 
 
 @pytest.fixture(autouse=True)
-def _isolate_subagents_dir(_isolation_dirs, monkeypatch):
+def _isolate_subagents_dir(_isolation_dirs, _host_floor_patch):
     """Pin the subagent registry dir to a tmp dir for the whole suite.
 
     ``kiro_crew.subagent_persistence._SUBAGENTS_DIR`` is bound at import time to
@@ -2388,7 +2504,7 @@ def _isolate_subagents_dir(_isolation_dirs, monkeypatch):
     logs with "lost to gateway restart" warnings (e.g. tasks ``t`` / ``ls /tmp``).
     Redirecting the module global gives every test an isolated, empty registry.
     """
-    monkeypatch.setattr(
+    _host_floor_patch.setattr(
         "kiro_crew.subagent_persistence._SUBAGENTS_DIR",
         _isolation_dirs("subagents"),
     )
@@ -2442,7 +2558,7 @@ def _agent_spec_seam_modules():
 
 
 @pytest.fixture(autouse=True)
-def _isolate_agent_spec_home(_agent_spec_seam_modules, _isolation_dirs, monkeypatch):
+def _isolate_agent_spec_home(_agent_spec_seam_modules, _isolation_dirs, _host_floor_patch):
     """Pin the AGENT-SPEC home to a per-test tmp dir, for EVERY testpath.
 
     A third isolation axis, distinct from both the data home and the import-time
@@ -2504,7 +2620,7 @@ def _isolate_agent_spec_home(_agent_spec_seam_modules, _isolation_dirs, monkeypa
     so anything visible afterwards was chosen by the test rather than exported by the
     operator (whose value would name another real home).
     """
-    monkeypatch.delenv("KIRO_HOME", raising=False)
+    _host_floor_patch.delenv("KIRO_HOME", raising=False)
     root = _isolation_dirs("kiro-agents")
     paths = sys.modules.get("kiro_crew.config.paths")
 
@@ -2519,9 +2635,9 @@ def _isolate_agent_spec_home(_agent_spec_seam_modules, _isolation_dirs, monkeypa
     for module, attr in _AGENT_SPEC_HOOKS:
         mod = sys.modules.get(module)
         if mod is not None:
-            monkeypatch.setattr(mod, attr, root, raising=False)
+            _host_floor_patch.setattr(mod, attr, root, raising=False)
     if paths is not None:
-        monkeypatch.setattr(paths, "_agents_dir_override", _pinned_agents_dir)
+        _host_floor_patch.setattr(paths, "_agents_dir_override", _pinned_agents_dir)
     return paths.ambient_agents_dir if paths is not None else None
 
 
@@ -2584,7 +2700,7 @@ def _test_owned_roots(tmp_path_factory) -> tuple[pathlib.Path, ...]:
 
 
 @pytest.fixture(autouse=True)
-def _isolate_kiro_sessions_dir(_isolation_dirs, monkeypatch, tmp_path_factory):
+def _isolate_kiro_sessions_dir(_isolation_dirs, _host_floor_patch, tmp_path_factory):
     """Pin kiro-cli's transcript store (``<kiro home>/sessions/cli``), for EVERY testpath.
 
     A fourth ``~/.kiro`` isolation axis, distinct from the data home, the import-time
@@ -2652,13 +2768,13 @@ def _isolate_kiro_sessions_dir(_isolation_dirs, monkeypatch, tmp_path_factory):
                 return root
             return unpinned
 
-        monkeypatch.setattr(paths, "_sessions_dir_override", _pinned_sessions_dir)
+        _host_floor_patch.setattr(paths, "_sessions_dir_override", _pinned_sessions_dir)
     # ``session_map`` defers to ``kiro_sessions_dir()`` when its own override is
     # unset, so the resolver pin above is the floor; this only keeps a module that IS
     # loaded reading the same tree through its own lever.
     session_map = sys.modules.get("kiro_crew.session_map")
     if session_map is not None:
-        monkeypatch.setattr(session_map, "_KIRO_SESSIONS_DIR", root, raising=False)
+        _host_floor_patch.setattr(session_map, "_KIRO_SESSIONS_DIR", root, raising=False)
 
 
 @pytest.fixture
@@ -2680,7 +2796,7 @@ def unpinned_kiro_sessions_dir(_isolate_kiro_sessions_dir, monkeypatch):
 
 
 @pytest.fixture(autouse=True)
-def _no_model_download(monkeypatch, _isolation_dirs):
+def _no_model_download(_host_floor_patch, _isolation_dirs):
     """Never let a test download model weights over the network.
 
     Embeddings are always-on, so any test that boots the gateway/server
@@ -2697,8 +2813,8 @@ def _no_model_download(monkeypatch, _isolation_dirs):
     tests would pass/fail machine-dependently on hosts that ran the
     Ollama-era embeddings.
     """
-    monkeypatch.setenv("KIROCREW_SKIP_MODEL_DOWNLOAD", "1")
-    monkeypatch.setenv("OLLAMA_MODELS", str(_isolation_dirs("ollama-models")))
+    _host_floor_patch.setenv("KIROCREW_SKIP_MODEL_DOWNLOAD", "1")
+    _host_floor_patch.setenv("OLLAMA_MODELS", str(_isolation_dirs("ollama-models")))
     # Force telemetry OFF for every test. `_consent_enabled` reads this env var BEFORE
     # the config flag, which is what makes it a reliable gate: ~15 tests patch
     # `KiroCrewConfig.load` with a bare MagicMock, whose `telemetry.enabled` is TRUTHY,
@@ -2706,11 +2822,11 @@ def _no_model_download(monkeypatch, _isolation_dirs):
     # RELATIVE path `MagicMock/load().telemetry.local_dir/...` -- writing metrics and a
     # lock file into the repo root, plus a background reader thread that outlives the
     # test. Tests that exercise telemetry delete this var themselves (test/metrics/).
-    monkeypatch.setenv("KIROCREW_TELEMETRY", "0")
+    _host_floor_patch.setenv("KIROCREW_TELEMETRY", "0")
 
 
 @pytest.fixture(autouse=True)
-def _no_default_builtin_skills_sync(request, monkeypatch):
+def _no_default_builtin_skills_sync(request, _host_floor_patch):
     """Stop a bare ``SkillsLoader()`` / ``ContextBuilder()`` from syncing builtins.
 
     ``SkillsLoader.__init__`` defaults ``install_builtins=True``, which calls
@@ -2754,11 +2870,11 @@ def _no_default_builtin_skills_sync(request, monkeypatch):
             kwargs["install_builtins"] = False
         original_init(self, *args, **kwargs)
 
-    monkeypatch.setattr(SkillsLoader, "__init__", _init_without_builtins_by_default)
+    _host_floor_patch.setattr(SkillsLoader, "__init__", _init_without_builtins_by_default)
 
 
 @pytest.fixture(autouse=True)
-def _no_central_policy_fetch(monkeypatch):
+def _no_central_policy_fetch(_host_floor_patch):
     """Keep every test off the operator's fleet policy endpoint, and stop the poller.
 
     Two independent hazards, both of which have to be closed here rather than in
@@ -2787,7 +2903,7 @@ def _no_central_policy_fetch(monkeypatch):
     # the policy module at setup to read its canonical tuple, because that would put
     # the governance evaluator on every test's import path.
     for var in [k for k in os.environ if k.startswith("KIROCREW_POLICY_")]:
-        monkeypatch.delenv(var, raising=False)
+        _host_floor_patch.delenv(var, raising=False)
     yield
     # Imported at teardown, not at setup: the module pulls in the governance
     # evaluator, and an autouse fixture must not add that to every test's import
@@ -2805,7 +2921,7 @@ def _no_central_policy_fetch(monkeypatch):
 
 
 @pytest.fixture(autouse=True)
-def _isolate_agent_state_sidecar(_isolation_dirs, monkeypatch):
+def _isolate_agent_state_sidecar(_isolation_dirs, _host_floor_patch):
     """Pin the agent_state sidecar to a tmp dir for the whole suite.
 
     ``kiro_crew.agent_state`` stores per-agent bookkeeping (model_managed,
@@ -2816,7 +2932,7 @@ def _isolate_agent_state_sidecar(_isolation_dirs, monkeypatch):
     tmp dir so every test starts from empty state.
     """
     sidecar_root = _isolation_dirs("agent-state")
-    monkeypatch.setattr("kiro_crew.agent_state.config_dir", lambda: sidecar_root)
+    _host_floor_patch.setattr("kiro_crew.agent_state.config_dir", lambda: sidecar_root)
 
 
 # ── the repository checkout is host state too ─────────────────────────

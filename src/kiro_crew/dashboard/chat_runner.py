@@ -56,6 +56,7 @@ from kiro_crew.config.loader import (
 )
 from kiro_crew.connections import get_visible_providers
 from kiro_crew.constants import strip_control_comments
+from kiro_crew.context import prepare_store_vectors
 from kiro_crew.context_blocks import (
     PHASE_PER_TURN,
     PHASE_SESSION_START,
@@ -4359,6 +4360,7 @@ async def _eager_spawn(
                     slot.key,
                     exc_info=True,
                 )
+                return
             # Fail-safe mirror of the real turn's guard: if an app-owned slot
             # STILL did not resolve (self-heal missed, or the resolve threw), do
             # NOT register a speculative session — resolve_agent_bindings returns
@@ -6671,6 +6673,7 @@ async def _run_chat(
         # (e.g. "default") which has no matching ~/.kiro/agents/ config.
         kiro_agent: str | None = None
         memory_store: str | None = None
+        private_member = ""
         # The KiroCrew agent's own default model ("" = inherit). Ranks below the
         # slot's explicit pick and above the bound kiro agent's pin / the global
         # agent.model fallback.
@@ -6757,8 +6760,55 @@ async def _run_chat(
                     memory_store = bindings.memory_store_name
                     agent_model = normalize_agent_model(bindings.model)
             _app_agent_unresolved = bool(slot._app) and not bindings.requested_resolved
-        except Exception:
+            if slot.agent and not slot._app and not bindings.requested_resolved:
+                from kiro_crew.memory_stores import UnknownMemoryStore
+
+                raise UnknownMemoryStore(
+                    f"Crew Member '{slot.agent}' is unavailable; restore it or choose a member"
+                )
+        except Exception as exc:
             logger.warning("Failed to resolve agent bindings in _run_chat", exc_info=True)
+            from kiro_crew.memory_stores import UnknownMemoryStore
+
+            if slot.memory_store or isinstance(exc, UnknownMemoryStore):
+                raise RuntimeError(f"memory_unavailable: {exc}") from exc
+
+        if slot.memory_store:
+            from kiro_crew.memory_stores import require_memory_store
+
+            # Persisted identity wins over an unresolved/deleted member alias.
+            # A deliberate member switch updates the slot binding atomically.
+            await asyncio.to_thread(require_memory_store, slot.memory_store)
+            if memory_store != slot.memory_store:
+                raise RuntimeError(
+                    "memory_unavailable: this conversation's member binding changed; "
+                    "restore the member or open a new conversation"
+                )
+        if memory_store and memory_store != "default":
+            from kiro_crew.memory_stores import require_memory_store
+
+            if loaded_cfg is None:
+                raise RuntimeError("memory_unavailable: cannot verify this conversation's owner")
+            # Freeze the validated V2 owner before acquiring a provider. Schema
+            # migrations also apply to V1, so schema lineage cannot identify a
+            # private turn. Missing ownership must fail before classification.
+            await asyncio.to_thread(require_memory_store, memory_store, config=loaded_cfg)
+            record = loaded_cfg.memory_stores[memory_store]
+            if record.memory_version == 2:
+                private_member = record.owner_member
+            # Bind writes before allocating a provider as well as reads. This
+            # also initializes a legacy member chat after explicit V2 setup.
+            slot.memory_store = memory_store
+            if state.conversation_log is None:
+                raise RuntimeError("memory_unavailable: cannot persist this conversation's binding")
+            await asyncio.to_thread(
+                state.conversation_log.update_metadata,
+                session_key,
+                {"memory_store": memory_store, "agent": crew_alias},
+            )
+            await prepare_store_vectors(
+                state.context_builder, memory_store, session_key=session_key
+            )
 
         # FAIL-LOUD: an app-owned slot whose agent STILL did not resolve after the
         # self-heal must NOT run the default agent — that generic-substitution is
@@ -7319,6 +7369,17 @@ async def _run_chat(
             # context, taking the skills index with it. Read-and-clear the flag
             # here so this turn re-injects the index exactly once.
             _needs_reinjection = state.sessions.consume_needs_reinjection(session_key)
+            # Stand up this crew's OWN vector store before the offloaded build.
+            # It has to happen here, on the loop, because init() is blocking file
+            # IO (sqlite connect, migrations, a FAISS load) that build_message's
+            # sync resolver may not perform. A no-op for the default store.
+            #
+            # V2 preparation is required: unavailable ownership, files or vector
+            # storage stop the turn. Legacy V1 named stores retain their existing
+            # Markdown/keyword preparation fallback within that same store.
+            await prepare_store_vectors(
+                state.context_builder, memory_store, session_key=session_key
+            )
             full_message, _ = await run_in_embed_pool(
                 state.context_builder.build_message,
                 message,
@@ -9820,9 +9881,14 @@ async def _run_chat(
             elif event.kind == EVENT_AGENT_SWITCHED:
                 new_agent, _ = redact_credentials(event.text)
                 new_agent, _ = redact_exfiltration_urls(new_agent)
-                if new_agent and slot.mode == "member" and new_agent != slot.agent:
-                    # Member DM threads are pinned to their crew, and this is
-                    # the one writer the HTTP guards cannot reach: kiro-cli has
+                if new_agent and (
+                    private_member or (slot.mode == "member" and new_agent != slot.agent)
+                ):
+                    pinned_member = private_member or slot.agent
+                    # V2 turns are pinned in every slot mode. Any provider-side
+                    # switch ends the turn, including a template whose spelling
+                    # happens to equal the member alias. HTTP guards cannot
+                    # reach this writer: kiro-cli has
                     # ALREADY switched its own session's agent by the time this
                     # event arrives. Veto by keeping slot.agent (no broadcast —
                     # nothing changed for the UI) and forcing a session reset,
@@ -9832,7 +9898,7 @@ async def _run_chat(
                         "agent switch to %r vetoed on member thread %s (pinned to %r)",
                         new_agent,
                         slot.key,
-                        slot.agent,
+                        pinned_member,
                     )
                     # SEL: this veto is a permission denial — the one pin
                     # enforcement site the HTTP guards cannot reach (kiro-cli
@@ -9845,7 +9911,7 @@ async def _run_chat(
                         outcome="denied",
                         source="member_pin",
                         resources=f"slot={slot.key} agent={new_agent}",
-                        error=f"member thread pinned to {slot.agent}",
+                        error=f"member thread pinned to {pinned_member}",
                     )
                     # The veto must be VISIBLE: kiro-cli has already switched,
                     # so the remainder of this turn executes as the foreign
@@ -9857,7 +9923,7 @@ async def _run_chat(
                     slot.append(
                         "notice",
                         f"📌 Agent switch to {new_agent} was blocked — this thread is "
-                        f"pinned to {slot.agent}. The next turn restarts on the pinned crew.",
+                        f"pinned to {pinned_member}. The next turn restarts on the pinned crew.",
                         "msg msg-info",
                     )
                     needs_session_reset = True

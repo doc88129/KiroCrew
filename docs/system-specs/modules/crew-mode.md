@@ -45,14 +45,61 @@ name into `ResolvedBindings`, in this order:
 1. the named crew, when it is a key of `config.agents`;
 2. otherwise a **materialized** kiro agent of that name (an app-registered agent
    under the user's `~/.kiro/agents/`, or a project agent), which keeps
-   dispatching itself while taking the default crew's workspace and memory
-   bindings;
+   dispatching itself with the default workspace and Global Memory V1;
 3. otherwise `default_agent`, with `requested_resolved` set to `False` so a
    caller never advertises a binding that is not running.
 
-An unresolvable workspace or memory store falls back to `default_workspace` /
-`default_memory_store` with a logged warning rather than failing the session.
-With no agents configured at all the resolver returns bare defaults.
+An unresolvable workspace falls back to `default_workspace`. Memory identity
+fails closed: only the reserved `default` assistant uses Global Memory V1, and
+every other Crew Member owns a unique private V2 store. A missing, unreadable,
+shared or mismatched binding stops execution with an actionable error. Setting a
+member as `default_agent` does not grant it V1 access. With no agents configured,
+the resolver returns the existing global defaults.
+
+Member creation automatically provisions empty private memory. Members cannot
+choose a shared store or rebind their private store. Legacy members explicitly
+initialize empty memory from their settings; former V1 or named-store contents
+remain untouched. Config fields, atomic publication, ownership manifest and
+recovery semantics are owned by [config](config.md#named-memory-stores-memory_storespy).
+
+Private memory also pins an active dashboard turn to its member in ordinary
+chat slots. A provider-side agent switch stops the stream with a visible notice
+and resets the provider before another turn; later events cannot continue under
+another agent while using that member's memory. This covers member DMs and
+ordinary V2 chats. Ordinary V1 chats keep their existing switch behavior. The
+validation and reset contract is owned by
+[session](session.md#private-member-session-ownership).
+
+The member drawer and editor link to
+`/settings/overview?view=memory&store=<name>`. The private memory workspace has
+Memories, Profile and Recovery tabs: browsing/search/correction/copy stay in
+Memories, preferences and project anchors stay in Profile, and backups plus
+retired experiences stay in Recovery. Advanced facet analysis is collapsed.
+Profile and Recovery load on first visit; visited Profile stays mounted so tab
+changes cannot discard its drafts. Changing the selected member requires explicit
+discard while a profile draft or memory mutation dialog is open. Source references
+are rendered as origin labels and item references rather than JSON payloads.
+
+The workspace header, store picker and copy-source picker reuse the owning
+member's exact avatar descriptor and name, including uploaded pictures. Returning
+from the member editor refreshes that identity. Empty memory can open
+`/members?member=<exact-name>` directly; this link selects the member by name,
+then uses the existing verified thread-opening endpoint. A failed thread open
+retains the concrete memory refusal alongside its readable error heading.
+
+Facts, rules and experiences all support correction and explicit forgetting.
+Experience correction keeps the same record identity and provenance. A store
+marked unavailable still makes a scoped read to obtain its actual refusal, with
+Retry and Recovery actions; it never displays cached records as a successful
+read. Recovery paginates retired memories and refreshes live recall after an
+item is restored. Complete snapshot restoration stays visibly staged across
+page visits until gateway restart, and the owner can cancel the pending stage
+without changing current memory or its saved backup.
+
+Inline schedules created inside the editor persist `member_id` separately from
+the provider template. A legacy schedule carrying only `agent_id` stays in Global
+Memory V1 even when that string matches a member alias. The editor lists private
+member jobs by exact `member_id`, and an existing job's member is immutable.
 
 `resolve_effective_model` is the single source of truth for what model a new
 session on a crew starts with, highest tier first: the crew's own `model`, the
@@ -116,14 +163,10 @@ model to delegate to it, and no `via="spawn"` execution entry exists today.
 
 ## Delegating to a bound crew
 
-`select_crew`'s guidance is to delegate with `spawn_run(agent=<crew>)`, and the
-sharp edge there is named rather than smoothed over: `subagent._validate_agent`
-checks `agent=` against the installed kiro-cli **template** names
-(`agent_discovery.list_agents`, plus the requesting project's cached agent
-names), not against `config.agents`. A crew name is therefore dispatchable only
-when an installed agent of the same name exists. That holds for every crew whose
-`kiro_agent` repeats its own name, and not for the default crew, which binds the
-template `kirocrew`.
+Explicit member delegation uses `spawn_run(crew=<member>)`. The member alias
+resolves its provider template and private memory together. The separate
+`agent=` argument identifies a provider template, not a durable member identity;
+it must not be used to infer access to a member's private memory.
 
 A named-but-unknown agent is **refused**, never silently answered by the default
 agent, with the machine-readable code `agent_not_found`. That refusal is a
@@ -163,6 +206,13 @@ Feature Previews) gates both doors, the Crew Members rail item and the sidebar's
 crew mode keeps running when the flag goes off.
 
 ## Crew Mode data flow
+
+A topic records its execution template and memory store. Generic topics inherit
+the coordinator's store; explicit delegation resolves the chosen member's store
+and refuses an unknown or unavailable member. Continuing or respawning a topic
+retains that topic's identity, including after restart. A memory failure leaves
+the message pending with an explanation and never respawns it under the
+coordinator or Global Memory V1.
 
 Store layout is `<data home>/crew/<folded slot key>-<8 hex digest>/` holding
 `queue.json`, `topics.json`, `forwards.json` and `slot_key`. The digest is taken

@@ -43,6 +43,7 @@ def _slot(key: str = "s1", agent: str = "kirocrew") -> MagicMock:
     # auto-created attribute is truthy — so leaving them unset made a test slot
     # look app-owned and handed `spawn(cwd=)` a mock's repr.
     slot.project = ""
+    slot.memory_store = ""
     slot._app = ""
     return slot
 
@@ -2940,10 +2941,7 @@ class TestCrewNameResolvesToTemplate:
         assert subagents.spawn.call_args.kwargs["agent"] == "kirocrew"
 
     @pytest.mark.asyncio
-    async def test_resolution_failure_falls_back_to_the_crew_name(self) -> None:
-        # A broken config must degrade to the previous behaviour, not lose the
-        # dispatch: the crew name still resolves for the 40 crews where name ==
-        # template.
+    async def test_resolution_failure_refuses_dispatch_with_an_explanation(self) -> None:
         subagents = MagicMock()
         subagents.spawn = MagicMock(return_value=_spawn_info("r1"))
         orch = _orch(subagents=subagents)
@@ -2951,10 +2949,12 @@ class TestCrewNameResolvesToTemplate:
         e = st.add_msg("build X")
         boom = patch.object(crew_mod.KiroCrewConfig, "load", staticmethod(
             MagicMock(side_effect=RuntimeError("unreadable config"))))
-        with boom, patch.object(orch, "_post"):
-            await orch._apply(_slot(agent="cr-analyst"), st,
-                              {"do": "spawn", "msg_id": e["msg_id"], "title": "X"})
-        assert subagents.spawn.call_args.kwargs["agent"] == "cr-analyst"
+        with boom, patch.object(orch, "_post") as post:
+            with pytest.raises(RuntimeError, match="unreadable config"):
+                await orch._apply(_slot(agent="cr-analyst"), st,
+                                  {"do": "spawn", "msg_id": e["msg_id"], "title": "X"})
+        subagents.spawn.assert_not_called()
+        assert "unreadable config" in post.call_args.args[1]
 
     @pytest.mark.asyncio
     async def test_warm_still_runs_before_resolution(self) -> None:

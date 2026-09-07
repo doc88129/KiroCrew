@@ -83,6 +83,16 @@ hatches exist for mirrored or airgapped installs:
 `memory.embedding_provider` accepts only `llama_cpp`; any other value in an old
 config is coerced to it on load.
 
+Both Global V1 and Crew Member V2 retrieve facts and past experiences through the
+explicit `memory_recall` tool. Ordinary message context keeps bounded preferences,
+project notes and applicable corrections, without an embedding search. All stores
+share one model and inference worker. `memory.embedding_threads` and
+`memory.embedding_bulk_threads` default to 1 and are capped at 2 (or the host's
+smaller CPU count); bulk threads may be 0 to inherit the normal setting. Background
+jobs share the configured bulk duty cycle, while waiting interactive queries take
+priority. A full inference queue leaves new rows pending and permits keyword
+retrieval, so additional members do not create unbounded native work.
+
 ## Install paths
 
 ### Which path on Linux

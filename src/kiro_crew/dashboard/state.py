@@ -3234,6 +3234,7 @@ class _ChatSlot:
         "autocompact_pct",
         "mode",
         "workspace",
+        "memory_store",
         "project",
         "created_at",
         "messages",
@@ -3424,6 +3425,11 @@ class _ChatSlot:
         # "" = default chat, "orchestrator" = orchestrated chat
         self.mode = mode
         self.workspace = workspace
+        # The crew's memory silo, or "" for the global store. Held on the slot
+        # rather than re-resolved per save because it is SLOT-OWNED metadata:
+        # absence retracts it, so a save that could not name it would drop the
+        # binding and silently return that session to the global store.
+        self.memory_store: str = ""
         self.project: str = ""
         # Remote-execution binding. ``executor`` is "local" for every ordinary
         # slot; "remote" means the turn is dispatched over an instance tunnel to

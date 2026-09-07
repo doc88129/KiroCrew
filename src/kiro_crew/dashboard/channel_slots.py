@@ -451,6 +451,8 @@ def surface_channel_session(
             state.sessions.set_autocompact_pct(effective_session_key(slot), slot.autocompact_pct)
     if meta.get("workspace"):
         slot.workspace = meta["workspace"]
+    if meta.get("memory_store"):
+        slot.memory_store = str(meta["memory_store"])
     if meta.get("project"):
         slot.project = meta["project"]
     if meta.get("channel_folder_filed"):

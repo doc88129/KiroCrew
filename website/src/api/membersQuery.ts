@@ -86,4 +86,6 @@ export interface MemberThreadOutcome {
   collision?: string
   /** Set when the last POST failed. */
   failed?: boolean
+  /** The gateway's actionable reason for this member's failed open or repair. */
+  errorDetail?: string
 }

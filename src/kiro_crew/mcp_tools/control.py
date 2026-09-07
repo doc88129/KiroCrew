@@ -60,6 +60,7 @@ from kiro_crew.validation import (
     MONITOR_WATCH_SCHEMA,
     REGISTER_HOOK_SCHEMA,
     RESET_CONVERSATION_SCHEMA,
+    ROUTE_CREW_SCHEMA,
     SELECT_CREW_SCHEMA,
     SET_PROJECT_SCHEMA,
     SUGGEST_FOLLOWUP_SCHEMA,
@@ -120,6 +121,29 @@ def schemas() -> list[dict[str, Any]]:
             },
         },
         {
+            "name": "route_crew",
+            "description": (
+                "Rank the crews whose triggers match a task, best first, and return each "
+                "one's score, description and memory store. Use this when you want the "
+                "same task to reach the same crew every time; use select_crew when you "
+                "want the roster and intend to judge the fit yourself. An empty `matches` "
+                "list means no crew claims the task -- handle it on the default crew "
+                "rather than picking the least-bad match. Acting on a match means "
+                "spawn_run(crew=<name>), which is what gives that run the crew's memory "
+                "and template and keeps another crew's memory out of it."
+            ),
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "task": {
+                        "type": "string",
+                        "description": "The task to route. Usually the user's own words.",
+                    },
+                },
+                "required": ["task"],
+            },
+        },
+        {
             "name": "select_crew",
             "description": (
                 "Orchestrator crew routing. Call with NO argument to get the roster of "
@@ -127,7 +151,10 @@ def schemas() -> list[dict[str, Any]]:
                 "crew fits the task better than handling it yourself. Call with `crew` set "
                 "to a roster name to bind it: returns the crew's resolved {workspace, "
                 "memory_store, kiro_agent, model}, which you then run via "
-                "spawn_run(agent=<crew>). Selection rules: (1) pick a crew ONLY when its "
+                "spawn_run(crew=<name>) -- `crew=`, NOT `agent=`: `agent` names a "
+                "kiro-cli template, and passing a crew name there gives the run the "
+                "DEFAULT memory store, silently, which is how one crew's work ends up "
+                "in another's memory. Selection rules: (1) pick a crew ONLY when its "
                 "triggers clearly and specifically match the task with high confidence; "
                 "(2) if no crew is a strong match, do NOT route — fall back to the default "
                 "crew (default_agent); (3) crews without triggers are omitted from the "
@@ -855,6 +882,11 @@ def wait(name: str, args: dict[str, Any]) -> str:
     return f"Waited {seconds}s. Resuming: {reason_safe}"
 
 
+def route_crew(name: str, args: dict[str, Any]) -> str:
+    args = validate_tool_args(args, ROUTE_CREW_SCHEMA)
+    return mcp_core._do_route_crew(str(args.get("task") or ""))
+
+
 def select_crew(name: str, args: dict[str, Any]) -> str:
     args = validate_tool_args(args, SELECT_CREW_SCHEMA)
     return mcp_core._do_select_crew(str(args.get("crew") or ""))
@@ -1493,6 +1525,7 @@ def suggest_followup(name: str, args: dict[str, Any]) -> str:
 HANDLERS: dict[str, Callable[[str, dict[str, Any]], str]] = {
     "task_run": task_run,
     "wait": wait,
+    "route_crew": route_crew,
     "select_crew": select_crew,
     "register_hook": register_hook,
     "autonudge_stop": autonudge_stop,

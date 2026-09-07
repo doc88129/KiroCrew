@@ -59,8 +59,8 @@ from kiro_crew.config.loader import (
     coerce_effort,
     inject_kiro_cli_api_key,
     normalize_agent_model,
-    resolve_agent_bindings,
     resolve_agent_config_path,
+    resolve_agent_identity,
     resolve_effective_model,
     update_config_locked,
     write_config_atomically,
@@ -102,6 +102,14 @@ from kiro_crew.dashboard.state import DashboardState
 from kiro_crew.effort import EFFORT_LEVELS, EFFORT_VALUES
 from kiro_crew.executors import discovery_executor, maintenance_executor, subprocess_executor
 from kiro_crew.loop_lock import LoopBoundLock
+from kiro_crew.memory_stores import (
+    DEFAULT_MEMORY_STORE,
+    MemberAlreadyExists,
+    UnknownMemoryStore,
+    memory_store_binding_defect,
+    persist_member_config,
+    provision_member_memory,
+)
 from kiro_crew.sandbox import (
     SandboxUnavailableError,
     cgroup_scope_argv,
@@ -3001,21 +3009,6 @@ async def api_kirocrew_agents(request: web.Request) -> web.Response:
 _config_lock = LoopBoundLock()
 
 
-class _AgentExistsError(Exception):
-    """An agent name re-check failed against the document INSIDE the flock.
-
-    The handler's 409 pre-check runs on a snapshot under the asyncio lock,
-    which excludes in-process races only; a cross-process create (the CLI)
-    can land between that check and the write. The delta mutate re-checks
-    against the document as read inside the sidecar lock and raises this,
-    which the handler maps to the same 409 (#4767).
-    """
-
-    def __init__(self, name: str) -> None:
-        super().__init__(name)
-        self.name = name
-
-
 def _get_config_lock() -> LoopBoundLock:
     """Return the config lock (loop-bound; rebinds when the running loop changes)."""
     return _config_lock
@@ -3107,6 +3100,7 @@ async def _do_agents_sync(request: web.Request) -> web.Response:
                     description=disc.description,
                     source=disc.source,
                 )
+                await _drained_to_thread(provision_member_memory, cfg, disc.name)
                 synced.append(disc.name)
 
         # Prune agents whose kiro_agent file no longer exists on disk.
@@ -3233,22 +3227,24 @@ async def api_kirocrew_agent_resolved_model(request: web.Request) -> web.Respons
     # Globs ~/.kiro/agents and may read the installed agent file — keep the
     # filesystem work off the event loop.
     model = await asyncio.to_thread(resolve_effective_model, cfg, agent_name or None)
-    bindings = resolve_agent_bindings(cfg, agent_name or None)
+    alias, kiro_agent, model_pin = await asyncio.to_thread(
+        resolve_agent_identity, cfg, agent_name or None
+    )
     # Effort resolves through its own chain, served from the SAME resolver the
     # provider factory calls so the pane cannot disagree with what a session will
     # actually run at -- including the role-aware default, which a crew bound to a
     # background worker agent takes instead of the chat default. Keyed on what the
     # bindings resolved, which is what makes an omitted `agent` answer for the
     # configured default crew rather than for no crew at all.
-    crew_effort = cfg.crew_pinned_effort(None, bindings.resolved_alias)
-    session_effort = cfg.resolve_session_effort(bindings.kiro_agent, bindings.resolved_alias)
+    crew_effort = cfg.crew_pinned_effort(None, alias)
+    session_effort = cfg.resolve_session_effort(kiro_agent, alias)
     return web.json_response(
         {
             "model": model,
             "agent": agent_name,
-            "kiro_agent": bindings.kiro_agent,
+            "kiro_agent": kiro_agent,
             # Whether the agent itself pins the model, vs inheriting it.
-            "pinned": bool(bindings.model),
+            "pinned": bool(model_pin),
             # The effort a new session on this crew starts at, and whether the
             # crew pinned it or inherited a default. "" means no tier pins one
             # and the model's own default applies.
@@ -3327,6 +3323,31 @@ def _crew_effort_rejected(raw: object) -> str | None:
     if val in EFFORT_VALUES:
         return None
     return "reasoning_effort must be one of: " + ", ".join(("(empty)", *EFFORT_LEVELS))
+
+
+def _crew_memory_store_rejected(raw: object) -> str | None:
+    """Reason a crew's memory-store binding is unusable, or ``None`` to allow it.
+
+    The rules themselves are ``memory_stores``' and are never restated here: a
+    second copy of the shape rule is how the write boundary comes to accept a name
+    the resolvers refuse to compose a path for, and that refusal would then surface
+    at the crew's first memory write rather than on the form that authored it.
+
+    Rejects rather than degrading, for the same reason as
+    :func:`_crew_effort_rejected`: the value has an author on the other end, and a
+    name quietly degraded onto another crew's silo reads back as a save that was
+    lost while the crew files its memory somewhere it was never bound.
+
+    This helper checks only shape. The create and update handlers separately
+    enforce automatic allocation and immutable private ownership.
+    """
+    defect = memory_store_binding_defect(raw)
+    if defect is None:
+        return None
+    return (
+        f"memory_store {raw!r} is not a usable store name ({defect}); use lowercase "
+        "letters, digits and hyphens, or '' for automatic provisioning on creation"
+    )
 
 
 def _model_pin_rejected(model: str, request: web.Request, provider: str) -> str | None:
@@ -3530,6 +3551,22 @@ async def api_kirocrew_agents_create(request: web.Request) -> web.Response:
             },
             status=400,
         )
+    # Old clients still send default/empty on create. They now mean automatic
+    # private allocation; no caller can choose or reuse another member's store.
+    memory_store = body.get("memory_store", DEFAULT_MEMORY_STORE)
+    memory_store_reason = _crew_memory_store_rejected(memory_store)
+    if memory_store_reason:
+        return web.json_response(
+            {"error": memory_store_reason, "code": "invalid_memory_store"}, status=400
+        )
+    if memory_store not in ("", DEFAULT_MEMORY_STORE):
+        return web.json_response(
+            {
+                "error": "A new Crew Member receives its own empty private memory automatically",
+                "code": "private_memory_required",
+            },
+            status=400,
+        )
     async with _get_config_lock():
         cfg = KiroCrewConfig.load()
         if name in cfg.agents:
@@ -3540,7 +3577,7 @@ async def api_kirocrew_agents_create(request: web.Request) -> web.Response:
         new_agent = KiroCrewAgentConfig(
             kiro_agent=kiro_agent,
             workspace=body.get("workspace", "default"),
-            memory_store=body.get("memory_store", "default"),
+            memory_store=memory_store,
             model=model,
             reasoning_effort=reasoning_effort,
             description=body.get("description", ""),
@@ -3549,32 +3586,17 @@ async def api_kirocrew_agents_create(request: web.Request) -> web.Response:
             session_color=session_color,
             avatar=avatar,
         )
-
-        # Under _get_config_lock() (the async with above): persist as a DELTA
-        # read-modify-write of this one agent entry inside a single sidecar-
-        # flock hold (#4767) -- a whole-document save() would publish the
-        # handler's snapshot and could revert a concurrent writer's unrelated
-        # settings. _drained_to_thread, not bare to_thread: a cancellation at
-        # the await must not release the asyncio lock while the worker is
-        # still inside the write (see its docstring).
-        def _write_agent() -> None:
-            def _mutate(doc: dict) -> dict:
-                agents = coerce_dict_section(doc, "agents")
-                if name in agents:
-                    # A cross-process create (CLI) won the race after our
-                    # snapshot check above.
-                    raise _AgentExistsError(name)
-                agents[name] = dataclasses.asdict(new_agent)
-                return doc
-
-            update_config_locked(mutate=_mutate)
-
+        cfg.agents[name] = new_agent
         try:
-            await _drained_to_thread(_write_agent)
-        except _AgentExistsError:
+            await _drained_to_thread(provision_member_memory, cfg, name)
+            await _drained_to_thread(lambda: persist_member_config(cfg, name, create=True))
+        except MemberAlreadyExists:
             return web.json_response(
-                {"error": f"Agent '{name}' already exists", "code": "agent_exists"},
-                status=409,
+                {"error": f"Agent '{name}' already exists", "code": "agent_exists"}, status=409
+            )
+        except (OSError, UnknownMemoryStore) as exc:
+            return web.json_response(
+                {"error": str(exc), "code": "member_memory_unavailable"}, status=409
             )
     # A crew APPEARING changes what the effort chain resolves even with no pin of
     # its own: the factory's captured config does not know the crew, so it cannot
@@ -3589,7 +3611,9 @@ async def api_kirocrew_agents_create(request: web.Request) -> web.Response:
         source="dashboard",
         resources=name,
     )
-    return web.json_response({"ok": True, "name": name})
+    return web.json_response(
+        {"ok": True, "name": name, "memory_store": cfg.agents[name].memory_store}
+    )
 
 
 async def api_kirocrew_agent_update(request: web.Request) -> web.Response:
@@ -3647,6 +3671,17 @@ async def api_kirocrew_agent_update(request: web.Request) -> web.Response:
         return web.json_response(
             {"error": "starred must be a boolean", "code": "invalid_starred"}, status=400
         )
+    if "memory_store" in body:
+        memory_store_reason = _crew_memory_store_rejected(body["memory_store"])
+        if memory_store_reason:
+            return web.json_response(
+                {"error": memory_store_reason, "code": "invalid_memory_store"}, status=400
+            )
+    if "provision_memory" in body and not isinstance(body["provision_memory"], bool):
+        return web.json_response(
+            {"error": "provision_memory must be a boolean", "code": "invalid_provision_memory"},
+            status=400,
+        )
     async with _get_config_lock():
         cfg = KiroCrewConfig.load()
         if name not in cfg.agents:
@@ -3660,6 +3695,22 @@ async def api_kirocrew_agent_update(request: web.Request) -> web.Response:
                     {"error": model_reason, "code": "invalid_model"}, status=400
                 )
         agent = cfg.agents[name]
+        prior_memory_store = agent.memory_store
+        if "memory_store" in body and body["memory_store"] != prior_memory_store:
+            return web.json_response(
+                {
+                    "error": "A member's private memory cannot be rebound or shared",
+                    "code": "private_memory_immutable",
+                },
+                status=409,
+            )
+        try:
+            if body.get("provision_memory"):
+                await _drained_to_thread(provision_member_memory, cfg, name)
+        except (OSError, UnknownMemoryStore) as exc:
+            return web.json_response(
+                {"error": str(exc), "code": "member_memory_unavailable"}, status=409
+            )
         # Captured BEFORE any mutation: what the effort chain reads today.
         effort_inputs_before = _effort_inputs(agent)
         changed: list[str] = []
@@ -3669,8 +3720,7 @@ async def api_kirocrew_agent_update(request: web.Request) -> web.Response:
         if "workspace" in body:
             agent.workspace = body["workspace"]
             changed.append("workspace")
-        if "memory_store" in body:
-            agent.memory_store = body["memory_store"]
+        if agent.memory_store != prior_memory_store:
             changed.append("memory_store")
         if "model" in body:
             # "auto"/"" both mean inherit; store the single "" spelling so the
@@ -3820,7 +3870,11 @@ async def api_kirocrew_agent_update(request: web.Request) -> web.Response:
         # takes the rollback path below. Rolling back on the cancellation
         # itself would delete the file a completed save now pins.
         try:
-            await _drained_to_thread(cfg.save)
+            await _drained_to_thread(
+                lambda: persist_member_config(
+                    cfg, name, expected_store=prior_memory_store, changed_fields=set(changed)
+                )
+            )
         except Exception:
             if _avatar_promoted:
                 await _drained_to_thread(_rollback_promoted_avatar, name, _avatar_pin, _prior_pin)
@@ -3844,7 +3898,7 @@ async def api_kirocrew_agent_update(request: web.Request) -> web.Response:
         source="dashboard",
         resources=f"{name} ({','.join(changed)})",
     )
-    return web.json_response({"ok": True, "name": name})
+    return web.json_response({"ok": True, "name": name, "memory_store": agent.memory_store})
 
 
 async def api_kirocrew_agent_delete(request: web.Request) -> web.Response:

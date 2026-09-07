@@ -14,6 +14,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
+from kiro_crew.config.loader import KiroCrewAgentConfig, KiroCrewConfig
 from kiro_crew.dashboard import chat_runner
 from kiro_crew.dashboard.chat_runner import _eager_spawn, schedule_eager_spawn
 from kiro_crew.dashboard.state import DashboardState, _ChatSlot
@@ -44,11 +45,8 @@ def _mock_state(slot: _ChatSlot) -> DashboardState:
 
 
 def _cfg(enabled: bool) -> MagicMock:
-    cfg = MagicMock()
+    cfg = KiroCrewConfig(agents={"default": KiroCrewAgentConfig()})
     cfg.session.eager_spawn = enabled
-    bindings = MagicMock()
-    bindings.kiro_agent = "kirocrew"
-    bindings.model = ""
     cfg_loader = MagicMock(return_value=cfg)
     return cfg_loader
 

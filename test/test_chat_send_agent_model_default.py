@@ -31,6 +31,7 @@ from kiro_crew.acp.types import EVENT_TEXT_CHUNK
 from kiro_crew.config.loader import KiroCrewConfig
 from kiro_crew.dashboard import chat_runner
 from kiro_crew.dashboard.chat_runner import _eager_spawn
+from kiro_crew.memory_stores import provision_member_memory
 from kiro_crew.providers.base import LLMEvent
 
 GLOBAL_DEFAULT = "claude-opus-5"
@@ -48,7 +49,7 @@ def _load_config(tmp_path: Path, data: dict) -> KiroCrewConfig:
 
 def _config(tmp_path: Path, *, crew_model: str = "") -> KiroCrewConfig:
     """Global ``agent.model`` set; the crews pin nothing unless *crew_model*."""
-    return _load_config(
+    cfg = _load_config(
         tmp_path,
         {
             "agent": {"model": GLOBAL_DEFAULT, "provider": "acp"},
@@ -56,10 +57,15 @@ def _config(tmp_path: Path, *, crew_model: str = "") -> KiroCrewConfig:
             "default_agent": "kirocrew",
         },
     )
+    provision_member_memory(cfg, "researcher")
+    return cfg
 
 
 def _turn_state(tmp_path: Path):
-    state, client = _runner_state(tmp_path)
+    builder = unittest.mock.MagicMock()
+    builder.ensure_store = unittest.mock.AsyncMock(return_value=object())
+    builder.build_message.return_value = ("fixture context", None)
+    state, client = _runner_state(tmp_path, context_builder=builder)
     _set_stream(client, [LLMEvent(kind=EVENT_TEXT_CHUNK, text="hi"), _complete()])
     return state, client
 

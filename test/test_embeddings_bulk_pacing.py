@@ -127,14 +127,14 @@ def test_one_pathological_row_cannot_park_the_sweep(_memory_cfg):
 def test_bulk_threads_default_to_one(_memory_cfg):
     _memory_cfg["embedding_threads"] = 4
     assert emb.bulk_embed_threads() == 1
-    # The interactive lane is untouched — that separation is the point.
-    assert emb._embed_threads() == 4
+    # Both lanes stay inside the shared native resource ceiling.
+    assert emb._embed_threads() == 2
 
 
 def test_explicit_zero_inherits_the_interactive_count(_memory_cfg):
     _memory_cfg["embedding_threads"] = 3
     _memory_cfg["embedding_bulk_threads"] = 0
-    assert emb.bulk_embed_threads() == 3
+    assert emb.bulk_embed_threads() == 2
 
 
 @pytest.mark.parametrize("bad", [-4, True, "2", None])
@@ -146,17 +146,17 @@ def test_bulk_threads_rejects_junk_without_inheriting(_memory_cfg, bad):
     assert emb.bulk_embed_threads() == 1
 
 
-def test_bulk_threads_override_is_honoured(_memory_cfg):
+def test_bulk_threads_override_respects_the_shared_resource_ceiling(_memory_cfg):
     _memory_cfg["embedding_threads"] = 4
     _memory_cfg["embedding_bulk_threads"] = 6
-    assert emb.bulk_embed_threads() == 6
-    assert emb._embed_threads() == 4
+    assert emb.bulk_embed_threads() == 2
+    assert emb._embed_threads() == 2
 
 
 def test_bulk_threads_clamped_to_cores(_memory_cfg, monkeypatch):
     monkeypatch.setattr(emb.os, "cpu_count", lambda: 8)
     _memory_cfg["embedding_bulk_threads"] = 4096
-    assert emb.bulk_embed_threads() == 8
+    assert emb.bulk_embed_threads() == 2
 
 
 # ---------------------------------------------------------------------------
@@ -198,15 +198,15 @@ def test_bulk_job_programs_the_bulk_pool(_memory_cfg):
     assert ctx.calls == [(2, 2)]
 
 
-def test_interactive_job_restores_the_full_pool(_memory_cfg):
+def test_interactive_job_restores_its_bounded_pool(_memory_cfg):
     _memory_cfg["embedding_threads"] = 6
-    _memory_cfg["embedding_bulk_threads"] = 2
+    _memory_cfg["embedding_bulk_threads"] = 1
     inst = _armed_embedder()
     ctx = _FakeCtx()
     llm = _FakeLlm(ctx)
     inst._apply_thread_class(llm, emb.PRIORITY_BULK)
     inst._apply_thread_class(llm, emb.PRIORITY_INTERACTIVE)
-    assert ctx.calls == [(2, 2), (6, 6)]
+    assert ctx.calls == [(1, 1), (2, 2)]
 
 
 def test_unchanged_class_is_not_reprogrammed(_memory_cfg):
@@ -249,6 +249,9 @@ def test_infer_loop_applies_the_class_before_inference(_memory_cfg):
     import threading
 
     inst._lock = threading.Lock()
+    inst._dispatch_lock = threading.Lock()
+    inst._jobs_changed = threading.Event()
+    inst._bulk_ready_at = 0.0
     ctx = _FakeCtx()
     order: list[str] = []
 

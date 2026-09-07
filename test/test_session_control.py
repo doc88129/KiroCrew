@@ -2706,6 +2706,15 @@ def test_the_empty_window_merge_mirrors_the_full_saves_slot_owned_fields(tmp_pat
         # test_remote_crew_execution.py::
         # test_the_marker_is_cleared_on_disk_when_a_relay_completes.
         "relay_in_flight",
+        # Written only for a NON-DEFAULT memory store, because absence is what
+        # means "the global store" -- so a newborn on the default store must NOT
+        # carry it, and writing "default" here would make a session that predates
+        # per-agent memory stores read differently from one saved today. The
+        # named-store half is pinned by the next test, which is the direction that
+        # can lose data: the key is slot-owned, so a merge that failed to write it
+        # would drop the binding and silently return that session to the global
+        # store.
+        "memory_store",
     }
     for key in sorted(SLOT_OWNED_META_KEYS - excluded):
         assert key in meta, f"slot-owned field {key!r} missing after an empty-window forced save"
@@ -2714,6 +2723,43 @@ def test_the_empty_window_merge_mirrors_the_full_saves_slot_owned_fields(tmp_pat
     assert meta.get("color_index") == 3
     assert meta.get("title") == "Pinned title"
     assert meta.get("title_origin") == "user"
+    from kiro_crew.history_consolidation import _session_store_name
+
+    assert _session_store_name(meta) == "", "a newborn on the default store names no silo"
+
+
+def test_the_empty_window_merge_keeps_a_named_memory_store(tmp_path):
+    """A crew's silo must survive the merge, and the default must stay absent.
+
+    ``memory_store`` is slot-owned, so ``carry_unowned_metadata`` will NOT
+    preserve it from the previous record -- the merge has to write it or the key
+    is gone. Losing it does not fail loudly: the session simply consolidates into
+    the operator's global memory from then on, which is the one outcome per-crew
+    isolation exists to prevent. Asserted in both directions, because the retract
+    path (rebinding a crew back to the default store) depends on absence.
+    """
+    from kiro_crew.dashboard.chat_persistence import save_slot_off_loop
+
+    state = _make_state(tmp_path)
+    caller = _slot(state, "chat-1")
+    created = asyncio.run(sc.create_session(state, caller_session_key=_key(caller)))
+    child = state.get_slot(created["target"])
+
+    child.memory_store = "coding"
+    asyncio.run(save_slot_off_loop(state, child, force=True))
+    meta = state.conversation_log.get_metadata(slot_history_key(child))
+    assert meta.get("memory_store") == "coding"
+
+    # Rebinding to the default RETRACTS it. The merge cannot delete a key, so the
+    # cleared form is a falsy value; what must hold is that the consolidator
+    # resolves it to the global store again.
+    from kiro_crew.history_consolidation import _session_store_name
+
+    child.memory_store = "default"
+    asyncio.run(save_slot_off_loop(state, child, force=True))
+    meta = state.conversation_log.get_metadata(slot_history_key(child))
+    assert not meta.get("memory_store"), meta.get("memory_store")
+    assert _session_store_name(meta) == ""
 
 
 def test_the_empty_window_merge_reads_slot_state_at_write_time(tmp_path):

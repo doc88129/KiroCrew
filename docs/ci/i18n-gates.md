@@ -257,7 +257,7 @@ on: every catalog value is wrapped in `[` … `]`, and every ASCII letter outsid
 preserved region is accented. So inside one inline run, a `]…[` seam **is** a
 surviving concatenation, and plain Latin **is** text that never reached a catalog.
 
-Five things to know before touching it:
+Six things to know before touching it:
 
 1. **It builds its own bundle with `NODE_ENV=development`.** `en-XA` is DEV-only in
    three independent places, all keyed on `import.meta.env.DEV`. `vite build --mode
@@ -290,6 +290,12 @@ Five things to know before touching it:
    placeholder would render the surface while hiding the defect it exists to show.
    Read those numbers as a fixed structural probe, not as the size of the debt,
    because the scanner counts per word.
+6. **Fetched content must be ready before it is measured.** The App Details
+   surface waits for its fixture description to mount before its existing settle
+   interval. The shell alone exceeds the generic text-volume check while the
+   manifest requests are pending; comparing that loading state with the populated
+   body would report different findings for identical code. A missing readiness
+   marker fails the run instead of silently measuring less content.
 
 Known limits of the render gate, named rather than papered over:
 

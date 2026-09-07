@@ -23,6 +23,7 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import dashboardReducer from '../store/dashboardSlice'
 import chatReducer from '../store/chatSlice'
 import notificationsReducer from '../store/notificationsSlice'
+import { i18nT } from '../i18n/t'
 
 /* Render framer-motion elements as plain DOM. The side sheet is an
    AnimatePresence child with a 240ms x-translate exit, so a real
@@ -247,9 +248,15 @@ describe('crew roster — cards', () => {
   })
 })
 
-describe('crew roster — isolation preview notice', () => {
-  const NOTICE = /Isolated memory per agent is on the way/
-  const TIP = /Isolated memory per agent is still being built/
+describe('crew roster — memory ownership notice', () => {
+  /* Anchored on the one clause of each string that carries the disclosure, not
+     on the whole sentence: the copy is reworded whenever the isolation surface
+     grows, and a whole-sentence match would then fail for a wording change
+     while a match on incidental words would keep passing after the disclosure
+     itself was dropped. The assertions below are about STRUCTURE — one
+     page-level notice, two per-binding tips. */
+  const NOTICE = i18nT('pages.kiroCrewAgentsPage.bindings_preview_notice')
+  const TIP = i18nT('pages.kiroCrewAgentsPage.bindings_preview_info')
 
   /* The view choice persists to localStorage, so a test here that switches to
      List would otherwise hand every later block a table instead of the cards
@@ -258,7 +265,7 @@ describe('crew roster — isolation preview notice', () => {
   beforeEach(() => localStorage.clear())
   afterEach(() => localStorage.clear())
 
-  it('says the bindings are a preview, in both views', async () => {
+  it('keeps the ownership explanation in both views', async () => {
     await renderRoster()
     // Page-level, so it is on screen before the user picks a view.
     expect(screen.getByText(NOTICE)).toBeInTheDocument()
@@ -277,14 +284,15 @@ describe('crew roster — isolation preview notice', () => {
     expect(screen.getAllByText(NOTICE)).toHaveLength(1)
   })
 
-  it('hangs the same caveat off the workspace and memory bindings', async () => {
+  it('keeps workspace guidance and states private memory initialization explicitly', async () => {
     await renderRoster()
     const sheet = await openEditor('oncall')
     gotoPane(sheet, 'place')
     // Two tips, one per binding the notice is about. The editor is an overlay,
     // so the page-level notice is not readable from here — the tooltip is the
     // only place this caveat reaches a user who is mid-edit.
-    expect(within(sheet).getAllByTitle(TIP)).toHaveLength(2)
+    expect(within(sheet).getAllByTitle(TIP)).toHaveLength(1)
+    expect(within(sheet).getByText(/Initialize this member/i)).toBeInTheDocument()
   })
 
   it('marks the workspace and memory columns in the list view', async () => {
@@ -525,7 +533,8 @@ describe('crew editor — opening', () => {
     // routes to the right one.
     gotoPane(sheet, 'place')
     expect(within(sheet).getByRole('combobox', { name: 'Workspace' })).toHaveTextContent('oncall')
-    expect(within(sheet).getByRole('combobox', { name: 'Memory Store' })).toHaveTextContent('oncall-mem')
+    expect(within(sheet).getByText('oncall-mem')).toBeInTheDocument()
+    expect(within(sheet).queryByRole('combobox', { name: 'Memory Store' })).not.toBeInTheDocument()
 
     gotoPane(sheet, 'template')
     expect(within(sheet).getByRole('combobox', { name: 'Agent Template' })).toHaveTextContent('oncall-agent')
@@ -539,7 +548,8 @@ describe('crew editor — opening', () => {
     const sheet = await openCreate()
     // Create mode has no crew to edit yet, so the bindings start on the defaults.
     expect(within(sheet).getByRole('combobox', { name: 'Workspace' })).toHaveTextContent('default')
-    expect(within(sheet).getByRole('combobox', { name: 'Memory Store' })).toHaveTextContent('default')
+    expect(within(sheet).queryByRole('combobox', { name: 'Memory Store' })).not.toBeInTheDocument()
+    expect(within(sheet).getByText(/own empty private memory/i)).toBeInTheDocument()
     // The Agent Template is the exception: it has NO safe default, because
     // pre-filling the built-in made a new crew an alias for the default agent.
     expect(within(sheet).getByRole('combobox', { name: 'Agent Template' }))

@@ -65,7 +65,7 @@ import ErrorBoundary from '../../components/ErrorBoundary'
 import ErrorNotice from '../../components/ErrorNotice'
 import { useIsMobile } from '../../hooks/useIsMobile'
 import { useConnected } from '../../hooks/useConnected'
-import { SearchInput } from '../../components/ui'
+import { Btn, SearchInput } from '../../components/ui'
 import { AnimatePresence, motion } from 'framer-motion'
 import { sidePanelDockMotion } from '../chat/sidePanelMount'
 import { CHAT_PANE_MIN_W } from '../chat/SidePanel'
@@ -758,8 +758,12 @@ export default function MembersPage() {
         )
       }
     },
-    onError: (_err, m) => {
-      setThreadOutcome(m.name, (prev) => ({ slot_key: prev?.slot_key ?? '', failed: true }))
+    onError: (error, m) => {
+      setThreadOutcome(m.name, (prev) => ({
+        slot_key: prev?.slot_key ?? '',
+        failed: true,
+        errorDetail: error instanceof Error ? error.message : undefined,
+      }))
     },
   })
   const { mutate: postThread } = openThread
@@ -1379,11 +1383,11 @@ export default function MembersPage() {
                     conversation the user is looking at — it is the REPAIR
                     that failed, and the copy says so. */}
                 <ErrorNotice
-                  message={t(
+                  message={[t(
                     activeSlot
                       ? 'pages.membersPage.thread_repair_failed'
                       : 'pages.membersPage.thread_open_failed',
-                  )}
+                  ), threadOutcome?.errorDetail].filter(Boolean).join(' ')}
                   variant="inline"
                   askAgent={!activeSlot}
                   testId="member-thread-error"
@@ -1820,18 +1824,21 @@ export default function MembersPage() {
               <dd className="min-w-0 truncate">{String(active.memory_store ?? '')}</dd>
             </div>
           </dl>
-          {/* Honest disclosure, always rendered, worded for this member's store.
-              Only the markdown layer (preferences, project notes) is read from a
-              named memory_store; conversation memory and lessons live in the
-              one global vector store every member reads, so "what you tell it
-              is known to all of them" stays true on a dedicated store too.
-              Store identity is a config fact — never inferred from the roster. */}
-          <div className="mt-3 text-[11px] text-muted border border-border rounded-md px-2.5 py-2">
-            {String(active.memory_store || 'default') === 'default'
-              ? t('pages.membersPage.memory_shared_note')
-              : t('pages.membersPage.memory_dedicated_note', {
-                  store: String(active.memory_store),
-                })}
+          <div className="mt-3 flex flex-col gap-2 text-[11px] text-muted border border-border rounded-md px-2.5 py-2">
+            <span>
+              {active.name === 'default'
+                ? t('pages.kiroCrewAgentsPage.global_memory_v1')
+                : active.memory_version === 2 && active.memory_owner === active.name
+                  ? t('pages.kiroCrewAgentsPage.private_memory_owned')
+                  : t('pages.kiroCrewAgentsPage.private_memory_legacy')}
+            </span>
+            <Btn onClick={() => navigate(active.name === 'default' || (active.memory_version === 2 && active.memory_owner === active.name)
+              ? `/settings/overview?view=memory&store=${encodeURIComponent(active.name === 'default' ? 'default' : String(active.memory_store))}`
+              : `${CREW_MANAGER_PATH}&crew=${encodeURIComponent(active.name)}`)}>
+              {active.name === 'default' || (active.memory_version === 2 && active.memory_owner === active.name)
+                ? t('pages.kiroCrewAgentsPage.manage_private_memory')
+                : t('pages.kiroCrewAgentsPage.initialize_private_memory')}
+            </Btn>
           </div>
           {/* One exit, into the crew manager (the only writer), landing on
               THIS member's editor — the same destination as the header face,

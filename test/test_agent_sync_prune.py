@@ -26,6 +26,7 @@ def _make_config(agents: dict[str, KiroCrewAgentConfig]) -> KiroCrewConfig:
     """Create a MagicMock standing in for KiroCrewConfig with the given agents dict."""
     cfg = MagicMock(spec=KiroCrewConfig)
     cfg.agents = agents
+    cfg.memory_stores = {}
     cfg.default_agent = "kirocrew"
     cfg.save = MagicMock()
     return cfg

@@ -181,7 +181,6 @@ src/kiro_crew/connections/l0_probe.py
 src/kiro_crew/connections/l0_record.py
 src/kiro_crew/connections/registry.py
 src/kiro_crew/connections/tool_aliases.py
-src/kiro_crew/crew_chat.py
 src/kiro_crew/cron_history.py
 src/kiro_crew/dashboard/cautious_boot.py
 src/kiro_crew/dashboard/channel_folders.py
@@ -203,7 +202,6 @@ src/kiro_crew/dashboard/handlers/link_meta.py
 src/kiro_crew/dashboard/handlers/mcp.py
 src/kiro_crew/dashboard/handlers/mcp_apps.py
 src/kiro_crew/dashboard/handlers/mcp_custom.py
-src/kiro_crew/dashboard/handlers/memory.py
 src/kiro_crew/dashboard/handlers/notifications_push.py
 src/kiro_crew/dashboard/handlers/security.py
 src/kiro_crew/dashboard/handlers/side.py
@@ -278,7 +276,6 @@ src/kiro_crew/knowledge/store.py
 src/kiro_crew/knowledge/sync.py
 src/kiro_crew/knowledge/watcher.py
 src/kiro_crew/mcp_apps_render.py
-src/kiro_crew/mcp_caller.py
 src/kiro_crew/mcp_cleanup.py
 src/kiro_crew/mcp_gateway/abort.py
 src/kiro_crew/mcp_gateway/app_call.py
@@ -322,7 +319,6 @@ src/kiro_crew/pod/provision.py
 src/kiro_crew/publish_governance.py
 src/kiro_crew/publish_sync.py
 src/kiro_crew/resource_status.py
-src/kiro_crew/security/__init__.py
 src/kiro_crew/seed.py
 src/kiro_crew/sel.py
 src/kiro_crew/service/apparmor.py
@@ -341,12 +337,9 @@ src/kiro_crew/slack/enterprise.py
 src/kiro_crew/slack/events.py
 src/kiro_crew/slack/interactions.py
 src/kiro_crew/slack/sessions_view.py
-src/kiro_crew/subagent_persistence.py
 src/kiro_crew/subagent_scale.py
-src/kiro_crew/suggestions.py
 src/kiro_crew/testing/channel_fixtures.py
 src/kiro_crew/testing/fake_acp_backend.py
-src/kiro_crew/vector_memory.py
 src/kiro_crew/webhooks.py
 src/kiro_crew/weixin/client.py
 src/kiro_crew/workflows/agent_exec.py
@@ -523,7 +516,6 @@ test/test_connections_l0_probe.py
 test/test_connections_registry.py
 test/test_connections_tool_aliases.py
 test/test_consolidate_cmd.py
-test/test_consolidation_placeholder_guard.py
 test/test_context_marker_neutralization.py
 test/test_context_ui_language.py
 test/test_continuable_followups.py
@@ -657,7 +649,6 @@ test/test_doctor_sandbox_verdict.py
 test/test_effort.py
 test/test_embedding_model_apply.py
 test/test_embedding_space_reconcile.py
-test/test_embeddings.py
 test/test_enable_embeddings_faiss.py
 test/test_enterprise.py
 test/test_env.py
@@ -707,7 +698,6 @@ test/test_heartbeat_retention.py
 test/test_heartbeat_sel_prune_offload.py
 test/test_history.py
 test/test_history_atomic_rewrite.py
-test/test_history_consolidation_retry.py
 test/test_history_coverage.py
 test/test_history_locking_remediation.py
 test/test_history_race.py
@@ -763,7 +753,6 @@ test/test_knowledge_kiroignore.py
 test/test_knowledge_source_spend.py
 test/test_knowledge_sync_local_file.py
 test/test_learn.py
-test/test_lesson_contradiction.py
 test/test_lesson_ranking.py
 test/test_lifecycle_hooks.py
 test/test_link_dashboard.py
@@ -891,7 +880,6 @@ test/test_persist_off_loop.py
 test/test_persistence_probe.py
 test/test_personal_shopper_no_purchase_capability.py
 test/test_platform_admission.py
-test/test_platform_compat_coverage.py
 test/test_playwright_e2e.py
 test/test_pod_e2e_video_guard.py
 test/test_pod_launchd.py
@@ -1107,7 +1095,6 @@ test/test_use_builtin_browser_config.py
 test/test_user_resolution_fallback.py
 test/test_validation.py
 test/test_validation_user_actions.py
-test/test_vector_memory.py
 test/test_vector_memory_coverage.py
 test/test_vendored_llama_payload.py
 test/test_verbosity_config.py

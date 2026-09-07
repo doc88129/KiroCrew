@@ -2537,6 +2537,16 @@ async def api_token_local(request: web.Request) -> web.Response:
             resources="invalid-secret",
         )
         return web.json_response({"error": "invalid secret"}, status=403)
+    from kiro_crew.member_memory_auth import local_owner_bootstrap_allowed
+
+    if not await asyncio.to_thread(local_owner_bootstrap_allowed, request):
+        return web.json_response(
+            {
+                "error": "This process cannot create an owner token. Open the dashboard from the host app or CLI.",
+                "code": "member_owner_token_refused",
+            },
+            status=403,
+        )
     ttl = MAX_SESSION_TTL_SECS
     ttl_param = request.query.get("ttl", "")
     if ttl_param:

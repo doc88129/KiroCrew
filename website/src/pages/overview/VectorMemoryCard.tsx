@@ -140,7 +140,7 @@ export function embedModelDisclosure(status?: EmbeddingStatus | null): { label: 
   return { label, title }
 }
 
-export default function VectorMemoryCard({ onActiveChange, onMigratedChange }: { onActiveChange?: (active: boolean) => void; onMigratedChange?: (migrated: boolean) => void }) {
+export default function VectorMemoryCard({ onActiveChange, onMigratedChange, diagnosticsOnly = false }: { onActiveChange?: (active: boolean) => void; onMigratedChange?: (migrated: boolean) => void; diagnosticsOnly?: boolean }) {
   // One instance covers every input in this card; the binding's focus/blur reset makes sharing safe.
   const ime = useImeGuard()
   const [stats, setStats] = useState<VectorStats | null>(null)
@@ -153,7 +153,7 @@ export default function VectorMemoryCard({ onActiveChange, onMigratedChange }: {
   const [epTagFilter, setEpTagFilter] = useState<string|null>(null)
   const [newKey, setNewKey] = useState(''); const [newVal, setNewVal] = useState('')
   const [enabling, setEnabling] = useState(false)
-  const [view, setView] = useState<'semantic'|'episodic'|'audit'|'inspector'>('semantic')
+  const [view, setView] = useState<'semantic'|'episodic'|'audit'|'inspector'>(diagnosticsOnly ? 'audit' : 'semantic')
   const [editKey, setEditKey] = useState<string|null>(null); const [editVal, setEditVal] = useState('')
   const [eventFilter, setEventFilter] = useState<string>('all')
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null)
@@ -188,16 +188,18 @@ export default function VectorMemoryCard({ onActiveChange, onMigratedChange }: {
   const visibleSemantic = useMemo(() => filteredSemantic.slice(0, SEMANTIC_RENDER_CAP), [filteredSemantic])
 
   const load = useCallback(async () => {
-    const [st, emb, sem] = await Promise.all([
+    const [st, emb, sem, audit] = await Promise.all([
       api.vectorStats().catch(() => null),
       api.vectorEmbeddingStatus().catch(() => null),
-      api.vectorSemantic().catch(() => ({ entries: [] })),
+      diagnosticsOnly ? Promise.resolve({ entries: [] }) : api.vectorSemantic().catch(() => ({ entries: [] })),
+      diagnosticsOnly ? api.vectorEvents(50, 0).catch(() => ({ events: [] })) : Promise.resolve({ events: [] }),
     ])
     setStats(st); setEmbStatus(emb); setSemantic(sem?.entries || [])
+    if (diagnosticsOnly) { setEvents(audit?.events || []); setEvHasMore((audit?.events?.length || 0) >= 50) }
     if (st?.migrated != null) onMigratedChange?.(st.migrated)
     // onMigratedChange is the parent's stable useState setter (setMigrated), so
     // including it can't cause a refetch loop; it just satisfies exhaustive-deps.
-  }, [onMigratedChange])
+  }, [onMigratedChange, diagnosticsOnly])
 
   useEffect(() => { load() }, [load])
 
@@ -389,7 +391,7 @@ export default function VectorMemoryCard({ onActiveChange, onMigratedChange }: {
           </div>
           <div className="flex gap-2 flex-wrap items-center">
             <div className="inline-flex items-center gap-1 p-1 rounded-md bg-bg-elevated w-fit">
-            {(['semantic','episodic','audit','inspector'] as const).map(v => (
+            {(['semantic','episodic','audit','inspector'] as const).filter(v => !diagnosticsOnly || v === 'audit' || v === 'inspector').map(v => (
               <button key={v} onClick={() => { setView(v); if (v === 'episodic') loadEpisodic(); if (v === 'audit') loadEvents(); if (v === 'inspector') loadPreview() }}
                 className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded text-[13px] font-medium cursor-pointer border-none transition-colors ${view === v ? 'bg-bg-hover text-accent' : 'bg-transparent text-muted hover:text-text'}`}>{
                   v === 'inspector' ? <><Search className="lucide-inline" /> {i18nT('pages.overview.vectorMemoryCard.inspector')}</> : v[0].toUpperCase() + v.slice(1)

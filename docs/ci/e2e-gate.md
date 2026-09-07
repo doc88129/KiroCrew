@@ -226,3 +226,11 @@ turn that into a second, misleading failure.
 Related: [i18n-gates.md](i18n-gates.md) for the render-time gate that shares this
 job, and [ci-and-reviews.md](ci-and-reviews.md) for where `e2e` sits among the
 other PR gates.
+
+The private member memory specs use the real gateway and database. They cover
+explicit V1-to-member copying with provenance, correction/reload/forgetting,
+cross-member isolation, persisted/cancellable backup staging, and the empty
+member's exact conversation binding across reload. Desktop and
+390px captures accompany the first flow. Their write guard requires
+`KIROCREW_E2E_EPHEMERAL=1`, which the isolated gateway harness sets; it must never
+be set for an operator gateway. These three specs raise the executed floor to 223.

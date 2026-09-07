@@ -97,20 +97,16 @@ async def test_unloadable_config_still_creates_with_empty_agent(
 
 
 def _alias_config(**aliases: Any) -> KiroCrewConfig:
-    """A real config whose ``agents`` map holds the given alias entries.
-
-    Any alias's ``memory_store`` is also registered in ``memory_stores`` —
-    resolution silently falls back to the default store for unknown names,
-    which would collapse the distinct-store case this helper exists to build.
-    """
-    from kiro_crew.config.loader import KiroCrewAgentConfig, MemoryStoreConfig
+    """A real config with each named member bound to its own private store."""
+    from kiro_crew.config.loader import KiroCrewAgentConfig
+    from kiro_crew.memory_stores import provision_member_memory
 
     cfg = KiroCrewConfig()
     cfg.agents = {name: KiroCrewAgentConfig(**fields) for name, fields in aliases.items()}
     cfg.default_agent = next(iter(cfg.agents))
-    for entry in cfg.agents.values():
-        if entry.memory_store not in cfg.memory_stores:
-            cfg.memory_stores[entry.memory_store] = MemoryStoreConfig()
+    for name in cfg.agents:
+        if name != "default":
+            provision_member_memory(cfg, name)
     return cfg
 
 
@@ -132,10 +128,11 @@ class TestSameBindingGuard:
         alias's memory store."""
         cfg = _alias_config(
             **{
-                "alias-a": {"kiro_agent": "kirocrew", "memory_store": "store-a"},
-                "alias-b": {"kiro_agent": "kirocrew", "memory_store": "store-b"},
+                "alias-a": {"kiro_agent": "kirocrew"},
+                "alias-b": {"kiro_agent": "kirocrew"},
             }
         )
+        assert cfg.agents["alias-a"].memory_store != cfg.agents["alias-b"].memory_store
         monkeypatch.setattr(chat_handlers, "KiroCrewConfig", SimpleNamespace(load=lambda: cfg))
         slot = dashboard_state.get_or_create_slot("pinned")
         slot.agent = "alias-a"
@@ -157,15 +154,14 @@ class TestSameBindingGuard:
     ) -> None:
         """Two names resolving to the same binding pass the guard, and the
         bypass of the 409 boundary emits its own SEL outcome."""
-        cfg = _alias_config(
-            **{
-                "alias-a": {"kiro_agent": "kirocrew"},
-                "alias-b": {"kiro_agent": "kirocrew"},
-            }
-        )
+        import kiro_crew.config.loader as loader_mod
+
+        cfg = _alias_config(default={"kiro_agent": "kirocrew"})
+        monkeypatch.setattr(loader_mod, "_MATERIALIZED_AGENTS_READY", True)
+        monkeypatch.setattr(loader_mod, "_MATERIALIZED_AGENTS", {"kirocrew"})
         monkeypatch.setattr(chat_handlers, "KiroCrewConfig", SimpleNamespace(load=lambda: cfg))
         slot = dashboard_state.get_or_create_slot("pinned2")
-        slot.agent = "alias-a"
+        slot.agent = "default"
         events: list[str] = []
         monkeypatch.setattr(
             chat_handlers,
@@ -173,7 +169,7 @@ class TestSameBindingGuard:
             lambda key, agent, outcome="applied": events.append(outcome),
         )
         resp, _ = await _post_chat(
-            dashboard_state, {"message": "hi", "slot": "pinned2", "agent": "alias-b"}
+            dashboard_state, {"message": "hi", "slot": "pinned2", "agent": "kirocrew"}
         )
         assert resp.status == 200
         assert "allowed_same_binding" in events
@@ -188,7 +184,7 @@ class TestSameBindingGuard:
         through while dispatch runs the project agent."""
         import kiro_crew.config.loader as loader_mod
 
-        cfg = _alias_config(**{"kirocrew": {"kiro_agent": "kirocrew"}})
+        cfg = _alias_config(default={"kiro_agent": "kirocrew"})
         monkeypatch.setattr(chat_handlers, "KiroCrewConfig", SimpleNamespace(load=lambda: cfg))
         # The project declares "proj-agent"; resolution must see it ONLY when
         # the guard passes the slot's project scope through.
@@ -214,7 +210,7 @@ class TestSameBindingGuard:
             lambda key, agent, outcome="applied": events.append(outcome),
         )
         resp, _ = await _post_chat(
-            dashboard_state, {"message": "hi", "slot": "proj-slot", "agent": "kirocrew"}
+            dashboard_state, {"message": "hi", "slot": "proj-slot", "agent": "default"}
         )
         assert resp.status == 409
         assert events == ["denied_mismatch"]

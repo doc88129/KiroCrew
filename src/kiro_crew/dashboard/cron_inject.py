@@ -386,12 +386,14 @@ def _bind_cron_slot(
     """
     slot = state.get_or_create_slot(
         name=f"cron-{job.id}",
-        agent=job.agent_id or "",
+        agent=job.member_id or job.agent_id or "",
         # A cron result is the job's output, not something the person typed.
         # A USER label would expose it to any app holding `slots:user`.
         origin=SlotOrigin.CRON,
     )
     slot.title = f"Cron: {_safe_job_name(job)}"
+    if job.memory_store:
+        slot.memory_store = job.memory_store
     if not slot.linked_session_key:
         slot.linked_session_key = f"cron:{job.id}"
         hydrate_slot_from_history(slot, history or [])

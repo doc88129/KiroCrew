@@ -309,6 +309,7 @@ class AcpProvider(LLMProvider):
         mcp_gateway_socket: str | Path | None = None,
         permission_mode: str | None = None,
         crew_agent: str | None = None,
+        private_memory: bool = False,
     ) -> None:
         # An unrecognized backend would pass every ``_is_<backend>`` check and
         # spawn kiro-cli, so a typo'd config would drive the wrong agent with no
@@ -335,6 +336,9 @@ class AcpProvider(LLMProvider):
         }
         if agent:
             kwargs["agent"] = agent
+        self._private_memory = private_memory is True
+        if self._private_memory:
+            kwargs["private_memory"] = True
         self._client = AcpClient(**kwargs)
         # Consumer opt-in for the low-fidelity child permission downgrade
         # (see child_fidelity_aware property). Set by fidelity-aware
@@ -812,6 +816,8 @@ class AcpProvider(LLMProvider):
         extra_env = getattr(self._client, "_extra_env", None) or {}
         mcp_gateway_overlay = getattr(self._client, "_mcp_gateway_overlay", None)
         mcp_gateway_socket = getattr(self._client, "_mcp_gateway_socket", None)
+        if self._private_memory:
+            mcp_gateway_socket = getattr(self._client, "_private_mcp_gateway_socket", "")
 
         # Check for session resume
         resume_sid = getattr(self._client, "_resume_session_id", "")
@@ -822,6 +828,7 @@ class AcpProvider(LLMProvider):
         # would silently run on the agent's default.
         configured_model = getattr(self._client, "_model", "") or ""
 
+        private_kwargs: dict[str, Any] = {"private_memory": True} if self._private_memory else {}
         runtime = AcpRuntime(
             work_dir=work_dir,
             agent=agent or "kirocrew",
@@ -831,6 +838,7 @@ class AcpProvider(LLMProvider):
             mcp_gateway_socket=mcp_gateway_socket,
             acp_backend=self._client.backend,
             crew_agent=self._crew_agent,
+            **private_kwargs,
         )
         _t_spawn = time.monotonic()
         try:
@@ -931,6 +939,7 @@ class AcpProvider(LLMProvider):
                         mcp_gateway_socket=mcp_gateway_socket,
                         acp_backend=self._client.backend,
                         crew_agent=self._crew_agent,
+                        **private_kwargs,
                     )
                     try:
                         await runtime.spawn()

@@ -8277,14 +8277,28 @@ class TestRuntimeWiring:
             build_message_calls.append({"text": text, "session_key": session_key, "kwargs": kwargs})
             return text, MagicMock(action=None, text="")
 
-        # Mock config loading
-        mock_cfg = MagicMock()
-        mock_cfg.agents = {"oncall": MagicMock(workspace="oncall-ws", memory_store="oncall-mem")}
-        mock_cfg.default_agent = "default"
+        from kiro_crew.config.loader import (
+            KiroCrewAgentConfig,
+            KiroCrewConfig,
+            WorkspaceConfig,
+            resolve_agent_bindings,
+        )
+        from kiro_crew.memory_stores import provision_member_memory
 
-        mock_bindings = MagicMock()
-        mock_bindings.memory_store_name = "oncall-mem"
-        mock_bindings.model = ""
+        mock_cfg = KiroCrewConfig.load()
+        mock_cfg.agents["oncall"] = KiroCrewAgentConfig(
+            kiro_agent="kirocrew", workspace="oncall-ws"
+        )
+        mock_cfg.workspaces["oncall-ws"] = WorkspaceConfig(dir=str(tmp_path / "oncall-ws"))
+        private_store = provision_member_memory(mock_cfg, "oncall")
+        mock_cfg.save()
+        mock_bindings = resolve_agent_bindings(mock_cfg, "oncall")
+        # The provider and context are doubles; model a supported runtime while
+        # keeping member ownership and persisted conversation metadata real.
+        monkeypatch.setattr(
+            "kiro_crew.member_memory_auth.private_memory_execution_supported",
+            lambda **kwargs: True,
+        )
 
         monkeypatch.setattr("kiro_crew.dashboard.chat.KiroCrewConfig.load", lambda: mock_cfg)
         monkeypatch.setattr(
@@ -8309,6 +8323,9 @@ class TestRuntimeWiring:
         monkeypatch.setattr(
             ctx_builder, "build_message", lambda *a, **kw: mock_build_message(ctx_builder, *a, **kw)
         )
+        monkeypatch.setattr(ctx_builder, "ensure_store", AsyncMock(return_value=object()))
+        monkeypatch.setattr("kiro_crew.dashboard.chat_runner._maybe_auto_title", AsyncMock())
+        monkeypatch.setattr("kiro_crew.dashboard.chat_runner.generate_session_summary", AsyncMock())
 
         state = _make_state(tmp_path, context_builder=ctx_builder)
 
@@ -8335,8 +8352,14 @@ class TestRuntimeWiring:
         slot.append("user", "test message", "msg msg-u")
 
         # Mock session manager to return a mock client
+        from kiro_crew.providers.base import EVENT_COMPLETE, EVENT_TEXT_CHUNK, LLMEvent
+
         mock_client = MagicMock()
-        mock_client.stream = MagicMock(return_value=AsyncIterator([]))
+        mock_client.stream = MagicMock(
+            return_value=AsyncIterator(
+                [LLMEvent(kind=EVENT_TEXT_CHUNK, text="done"), LLMEvent(kind=EVENT_COMPLETE)]
+            )
+        )
         state.sessions.get_or_create = AsyncMock(return_value=(mock_client, True, False))
         state.sessions.get_pid = MagicMock(return_value=None)
         state.sessions.consume_replay_suppression = MagicMock(return_value=False)
@@ -8345,11 +8368,15 @@ class TestRuntimeWiring:
         from kiro_crew.dashboard.chat import _run_chat
 
         await _run_chat(state, slot, "test message")
+        await asyncio.gather(*state._background_tasks)
 
         # Verify build_message was called with memory_store
         assert len(build_message_calls) == 1
-        assert build_message_calls[0]["kwargs"].get("memory_store") == "oncall-mem"
+        assert build_message_calls[0]["kwargs"].get("memory_store") == private_store
         assert build_message_calls[0]["session_key"] == "dashboard:mem-test"
+        metadata = conversation_log.get_metadata("dashboard:mem-test")
+        assert metadata["memory_store"] == private_store
+        assert metadata["agent"] == "oncall"
         replay = build_message_calls[0]["kwargs"].get("compressed_history")
         assert "frozen retained question" in replay
         assert "frozen retained answer" in replay

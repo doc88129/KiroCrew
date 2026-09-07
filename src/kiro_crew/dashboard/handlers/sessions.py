@@ -1520,10 +1520,9 @@ def _clearable_history_keys(
     Returns ``(clearable, skipped)``. A session is skipped when it is reachable as
     an open tab, when its metadata says ``pinned``, or when that metadata could not
     be read — the same exclusions ``delete_session(..., skip_pinned=True)``
-    applies, so the two agree. Note that metadata which is present but unparseable
-    is NOT an exclusion: ``get_metadata_status`` reports it as readable-with-no-
-    metadata (``({}, True)``), so such a session reads as unpinned and is cleared.
-    The delete resolves it identically, which is what matters here.
+    applies, so the two agree. Present but unparseable metadata is unreadable:
+    ``get_metadata_status`` returns ``({}, False)``, so both the preview and
+    the delete exclude it rather than treating missing identity as permission.
 
     Reads the filesystem (``list_sessions`` globs and stats every session file),
     so callers offload it off the event loop.

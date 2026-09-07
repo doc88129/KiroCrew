@@ -75,7 +75,7 @@ import { tmpdir } from 'node:os'
 import { fileURLToPath } from 'node:url'
 import { serveDist } from './lib/serve-dist.mjs'
 import { stubDashboardApi, logPageProblems, json } from './lib/stub-dashboard-api.mjs'
-import { SURFACES, LOCALES, VIEWPORTS, FIXTURE_DETAIL_APP } from './lib/i18n-surfaces.mjs'
+import { SURFACES, LOCALES, VIEWPORTS, FIXTURE_DETAIL_APP, FIXTURE_DETAIL_DESCRIPTION } from './lib/i18n-surfaces.mjs'
 import { browserBundle } from './lib/render-scan.mjs'
 import {
   BUCKETS,
@@ -290,7 +290,7 @@ const FIXTURE_APPS = [
       name: FIXTURE_DETAIL_APP,
       version: '1.0.0',
       displayName: 'Fixture Research Lab',
-      description: 'Runs research campaigns unattended.',
+      description: FIXTURE_DETAIL_DESCRIPTION,
       author: '0008',
       tags: ['research', 'automation'],
       highlights: [
@@ -933,8 +933,13 @@ async function sweep(browser, dist, { scanScript, dnt, surfaces, locales, label 
               + 'the wrong shape for this surface (see lib/boot-api.mjs for the two shapes that '
               + 'error-boundary the whole shell). Re-run with --verbose to see the page errors.')
           }
-          // Panels that fetch after mount need a beat more; a half-rendered surface
-          // under-reports rather than failing loudly.
+          // Shell text does not prove a fetched panel is ready. App Details
+          // resolves several requests before mounting its manifest; comparing a
+          // loading frame with a populated frame invents a branch regression.
+          if (surface.readyText) {
+            await page.getByText(surface.readyText, { exact: true }).waitFor({ state: 'visible', timeout: 15000 })
+          }
+          // Let the populated panel settle before measuring its text and layout.
           await page.waitForTimeout(surface.settle || 250)
           // Every width this gate reports is a text measurement, and text measures
           // differently in the fallback face than in the real one. Scanning before

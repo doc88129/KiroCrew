@@ -112,6 +112,9 @@ def _info(**kw: Any) -> Any:
         "last_tool": "fs_read",
         "parent_session_key": "dashboard:chat-1",
         "agent": "kirocrew",
+        # The retry path reuses this alongside the context triple: a retry must
+        # not widen a delegated run to the global store.
+        "memory_store": "",
         "user_stopped": False,
         "outcome": "",
         "max_turns": 0,

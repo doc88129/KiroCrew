@@ -83,6 +83,7 @@ _CRON_STRING_FIELD_CAPS: tuple[tuple[str, int], ...] = (
     ("channel", CHANNEL_MAX_LEN),
     ("thread_ts", 30),
     ("agent_id", MAX_SHORT_STRING),
+    ("member_id", MAX_SHORT_STRING),
     ("created_by", MAX_SHORT_STRING),
     ("folder_id", MAX_SHORT_STRING),
     ("session_key", MAX_SHORT_STRING),
@@ -622,6 +623,10 @@ class CronJob:
     failure_recorded: bool = False
     context_enabled: bool = False
     agent_id: str = ""
+    # Member identity is distinct from the provider template in agent_id.
+    # These fields survive reload; omitted legacy records remain on V1.
+    member_id: str = ""
+    memory_store: str = ""
     approval_mode: str = ""  # "" (default/hook-based) | "auto" (auto-approve all tools)
     acked_items: list[str] = field(default_factory=list)
     created_by: str = ""  # Slack user ID of the creator (for DM fallback)
@@ -1357,6 +1362,81 @@ def enabled_count_from_disk(path: Path) -> tuple[int, bool]:
     return (count, loadable)
 
 
+def resolve_cron_memory(job: CronJob, *, validate_memory_files: bool = True) -> tuple[str, str]:
+    """Resolve the durable member identity without changing legacy V1 jobs.
+
+    The provider template never identifies a member. A newly-created job may
+    inherit its creator's recorded store; after first persistence its own
+    binding is authoritative even when the originating chat has been closed.
+    """
+    from kiro_crew.config.loader import KiroCrewConfig, resolve_agent_bindings
+    from kiro_crew.memory_stores import require_memory_store
+
+    if not isinstance(job.member_id, str) or not isinstance(job.memory_store, str):
+        raise ValueError("memory_unavailable: scheduled memory identity is malformed")
+    if job.member_id:
+        cfg = KiroCrewConfig.load()
+        if job.member_id not in cfg.agents or job.member_id == "default":
+            raise ValueError(f"memory_unavailable: unknown Crew Member '{job.member_id}'")
+        bindings = resolve_agent_bindings(
+            cfg, job.member_id, validate_memory_files=validate_memory_files
+        )
+        if job.memory_store and job.memory_store != bindings.memory_store_name:
+            raise ValueError("memory_unavailable: scheduled member's memory binding changed")
+        store, agent = bindings.memory_store_name, job.agent_id or bindings.kiro_agent
+    elif job.memory_store:
+        store = require_memory_store(job.memory_store, require_directory=validate_memory_files)
+        agent = job.agent_id
+    else:
+        store, agent = "", job.agent_id
+    # Deterministic runners lack the member provider's protected runtime identity.
+    # Reject before persistence and again before dispatch, including imported jobs.
+    if (job.command or job.script) and store:
+        record = KiroCrewConfig.load().memory_stores.get(store)
+        if record and record.memory_version == 2:
+            raise ValueError(
+                "memory_unavailable: private Crew Member schedules require an agent task; "
+                "command and script jobs cannot use member memory"
+            )
+    return store, agent
+
+
+def bind_cron_memory(job: CronJob) -> None:
+    """Pin a new schedule to its creator or explicitly selected member."""
+    if not job.member_id and job.session_key:
+        from kiro_crew.history import ConversationLog
+        from kiro_crew.memory_stores import require_memory_store
+
+        if job.session_key.startswith("subagent:"):
+            from kiro_crew.subagent_persistence import read_run_memory_store
+
+            job.memory_store = read_run_memory_store(
+                job.session_key.removeprefix("subagent:"), validate_memory_files=False
+            )
+        else:
+            # Creation also runs in the sandboxed MCP server, where member
+            # contents are intentionally hidden. Read only binding metadata;
+            # the trusted gateway validates the actual files before dispatch.
+            meta, readable = ConversationLog().get_metadata_status(job.session_key)
+            if not readable:
+                raise ValueError("memory_unavailable: originating session metadata is unreadable")
+            store = meta.get("memory_store", "")
+            if not isinstance(store, str):
+                raise ValueError("memory_unavailable: invalid originating memory binding")
+            job.memory_store = (
+                require_memory_store(store, require_directory=False)
+                if store not in ("", "default")
+                else ""
+            )
+    if job.member_id or job.memory_store:
+        job.memory_store, _ = resolve_cron_memory(job, validate_memory_files=False)
+        if not job.member_id and job.memory_store:
+            from kiro_crew.config.loader import KiroCrewConfig
+
+            store_cfg = KiroCrewConfig.load().memory_stores[job.memory_store]
+            job.member_id = store_cfg.owner_member
+
+
 def _job_from_record(j: dict[str, Any]) -> CronJob:
     """Build one :class:`CronJob` from its serialized record.
 
@@ -1411,6 +1491,8 @@ def _job_from_record(j: dict[str, Any]) -> CronJob:
         last_result_stamp=j.get("last_result_stamp", ""),
         context_enabled=j.get("context_enabled", False),
         agent_id=j.get("agent_id", ""),
+        member_id=j.get("member_id", ""),
+        memory_store=j.get("memory_store", ""),
         approval_mode=j.get("approval_mode", ""),
         acked_items=j.get("acked_items", []),
         created_by=j.get("created_by", ""),
@@ -2035,6 +2117,7 @@ class CronService:
         approval_mode: str = "",
         enabled: bool = True,
         agent_id: str = "",
+        member_id: str = "",
         model: str = "",
         silent: bool = False,
         timezone: str = "",
@@ -2094,6 +2177,7 @@ class CronService:
             approval_mode=approval_mode,
             enabled=enabled,
             agent_id=agent_id,
+            member_id=member_id,
             model=model,
             silent=silent,
             timezone=timezone,
@@ -2169,6 +2253,7 @@ class CronService:
             self._sync_for_write()
             if any(predicate(existing) for existing in self._jobs):
                 return False
+            bind_cron_memory(job)
             self._jobs.append(job)
             self._save()
         return True
@@ -2187,6 +2272,7 @@ class CronService:
         approval_mode: str = "",
         enabled: bool = True,
         agent_id: str = "",
+        member_id: str = "",
         model: str = "",
         silent: bool = False,
         timezone: str = "",
@@ -2237,6 +2323,7 @@ class CronService:
                 "channel": channel,
                 "thread_ts": thread_ts,
                 "agent_id": agent_id,
+                "member_id": member_id,
                 "created_by": created_by,
                 "folder_id": folder_id,
                 "session_key": session_key,
@@ -2296,6 +2383,7 @@ class CronService:
             created_by=created_by,
             approval_mode=approval_mode,
             agent_id=agent_id,
+            member_id=member_id,
             model=str(model or "").strip(),
             silent=silent,
             timezone=timezone,
@@ -2324,6 +2412,7 @@ class CronService:
         """
         with self._file_lock():
             self._sync_for_write()
+            bind_cron_memory(job)
             self._jobs.append(job)
             self._save()
 
@@ -2341,6 +2430,7 @@ class CronService:
         approval_mode: str = "",
         enabled: bool = True,
         agent_id: str = "",
+        member_id: str = "",
         model: str = "",
         silent: bool = False,
         timezone: str = "",
@@ -2388,6 +2478,7 @@ class CronService:
             approval_mode=approval_mode,
             enabled=enabled,
             agent_id=agent_id,
+            member_id=member_id,
             model=model,
             silent=silent,
             timezone=timezone,
@@ -2464,6 +2555,8 @@ class CronService:
             for job in self._jobs:
                 if job.id != job_id:
                     continue
+                if "member_id" in kwargs and (kwargs["member_id"] or "") != job.member_id:
+                    raise ValueError("member memory is fixed for this schedule; create a new job")
                 if expect_pending is not None and job.secret_env_pending != expect_pending:
                     raise CronPendingMismatch("pending secret request changed")
                 if expect_pending_ts is not None and job.secret_env_pending_ts != expect_pending_ts:
@@ -4921,6 +5014,8 @@ class CronService:
                     "last_result_stamp": j.last_result_stamp,
                     "context_enabled": j.context_enabled,
                     "agent_id": j.agent_id,
+                    "member_id": j.member_id,
+                    "memory_store": j.memory_store,
                     "approval_mode": j.approval_mode,
                     "acked_items": j.acked_items,
                     "created_by": j.created_by,

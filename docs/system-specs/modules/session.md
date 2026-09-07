@@ -39,6 +39,32 @@ existing facade/import/monkeypatch seam requires it. Individual adapters may be
 retired in follow-up changes after repository-wide callers and characterization
 tests have moved off the corresponding legacy seam.
 
+## Private member session ownership
+
+An ordinary dashboard chat that has already used private member memory keeps
+that ownership for its lifetime. The agent-switch endpoint reads the protected
+binding for the effective session key before changing any slot fields, resetting
+the provider or writing history. Choosing another member (including the default
+assistant) returns `409 private_memory_session_pinned` and asks the owner to start
+a new conversation. An unreadable binding returns 503; resetting the same member
+and switching an unbound V1 conversation keep their existing behavior.
+
+The provider's in-turn agent-switch event follows the same private boundary in
+every dashboard slot mode. Before provider allocation, the runner validates the
+store off the event loop and freezes its V2 owner from the memory version and
+ownership record. Database schema migrations do not identify a V2 turn. Any
+provider-reported switch on that private turn leaves the selected member intact,
+shows a pinned-member notice, stops consuming further events and resets the
+provider. The notice prevents an empty-response retry from replaying completed
+tool actions. Ordinary unbound V1 chats retain their agent-switch behavior.
+
+Member chat turns validate the member's private memory before provider
+allocation and persist the binding used by memory tools and consolidation.
+Restored slots retain their recorded store: an unresolved member, changed
+binding or unreadable private store surfaces an error instead of borrowing
+Global Memory V1. Speculative eager allocation stops on binding-resolution
+failure and leaves the user-facing explanation to the actual turn.
+
 ## Background Session
 
 `BACKGROUND_KEY = "_bg"` is a persistent shared session for lightweight
@@ -1468,6 +1494,31 @@ a trust root on its own; publication therefore also writes a
   re-signs the mapping. Benign and self-healing — no migration step.
 - **Stale cleanup**: the orphan sweep removes `session_pid_<pid>.sig`
   alongside its `.txt` for dead pids (`session_pid.py`).
+- **Private member API authority**: the trusted publisher also writes the live
+  private process incarnation, session and immutable target store to
+  `member-memory-bindings/pids/<pid>.json`, under the precreated sandbox-readonly
+  root. Private V2 recall, lesson writes, and consolidation require a positive
+  kernel peer/ancestor match to this record, or a short-lived delegated proof
+  issued by the trusted MCP gateway after the same check. The shared internal
+  secret and legacy writable sidecars alone grant no private member authority.
+  A rekey, recycled process, unreadable record, or expired proof refuses the
+  request. Proof signing material is under the sandbox-hidden `memory_stores`
+  root; pooled backends receive proof only in the current call's trusted metadata.
+  Global V1 publication leaves no private PID binding, preserving shared V1 tab
+  behavior. A private session's first trusted preparation additionally pins
+  `member-memory-bindings/sessions/<sha256-key>/memory.json`; later metadata must
+  agree, including after restart. Neither erasing the metadata nor changing it
+  to another store can change this permanent private identity.
+- **Private runtime allocation**: every allocation resolves that trusted binding
+  off the event loop before reusing a provider or claiming a warm process. Private
+  cron, consolidation, delegated and interactive sessions bypass the V1 warm pool
+  and cannot share an ACP runtime. A task with a private parent or target uses its
+  own provider; a private parent with an unbound child refuses execution until the
+  child's trusted memory binding is established. An already-live provider whose isolation differs from its binding
+  is explicitly refused until the session is restarted. Global V1 allocation and
+  sharing stay unchanged. MCP caller discovery checks protected process ancestry
+  before cached identity, environment or legacy sidecars; a malformed protected
+  record remains unresolved and never falls back to those legacy sources.
 - **Threat model** (full version in the `session_pid_sig.py` module
   docstring): file forgery, cross-pid replay, tampering, and symlink
   planting are blocked; deliberate same-uid impersonation via

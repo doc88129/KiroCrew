@@ -108,8 +108,9 @@ function WakeRow({ job, onChanged }: { job: CronJob; onChanged: () => void }) {
   )
 }
 
-export default function CrewWakeSection({ crew, isDefaultCrew, onDraftChange, onSavingChange, onRequestCancel }: {
+export default function CrewWakeSection({ crew, agentTemplate, isDefaultCrew, onDraftChange, onSavingChange, onRequestCancel }: {
   crew: string
+  agentTemplate?: string
   isDefaultCrew: boolean
   /** Reports whether the create form holds unsaved TYPED work, so the host
    *  editor can fold it into its own unsaved-state accounting (dirty dot,
@@ -318,6 +319,8 @@ export default function CrewWakeSection({ crew, isDefaultCrew, onDraftChange, on
             agents={[]}
             defaultAgent=""
             lockedAgent={crew}
+            memberId={crew === 'default' ? undefined : crew}
+            providerAgent={agentTemplate}
             onSaved={onCreated}
             externalSubmit
             submitRef={submitRef}

@@ -166,13 +166,23 @@ async def api_members(request: web.Request) -> web.Response:
                 # Explicit allowlist — never a dataclass spread. The response
                 # is a network-boundary contract: spreading `AgentConfig`
                 # would ship every future field (including a credential-shaped
-                # one) to the roster endpoint automatically. These are
-                # exactly what the detail drawer renders.
+                # one) to the roster endpoint automatically. Each field below is
+                # here because a caller renders or routes on it.
                 "name": name,
                 "slug": slug,
                 "kiro_agent": agent_cfg.kiro_agent,
                 "workspace": agent_cfg.workspace,
                 "memory_store": agent_cfg.memory_store,
+                "memory_version": getattr(
+                    getattr(cfg, "memory_stores", {}).get(agent_cfg.memory_store),
+                    "memory_version",
+                    1,
+                ),
+                "memory_owner": getattr(
+                    getattr(cfg, "memory_stores", {}).get(agent_cfg.memory_store),
+                    "owner_member",
+                    "",
+                ),
                 "model": agent_cfg.model,
                 # Presentation-only and validated by _safe_avatar at load, so
                 # it cannot carry a credential-shaped value. Without it every
@@ -185,6 +195,15 @@ async def api_members(request: web.Request) -> web.Response:
                 # bool (the user's own favourite mark, PUT /api/agents/{name}).
                 "source": normalize_member_source(agent_cfg.source),
                 "starred": bool(agent_cfg.starred),
+                # A crew's IDENTITY: who it is, and the phrasings that should
+                # reach it. Both are operator-authored prose already stored on the
+                # crew, and both are needed off-config — a roster that shows a
+                # crew's memory store but not what it is for cannot answer "which
+                # of these should handle a ticket", by the reader or by a router.
+                # An empty `triggers` is meaningful rather than missing: it is the
+                # operator's opt-out from being routed to at all.
+                "description": agent_cfg.description,
+                "triggers": agent_cfg.triggers,
             }
         )
 

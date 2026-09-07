@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import fnmatch
 import importlib.util
 import json
@@ -30,6 +31,7 @@ from kiro_crew.dashboard.token_auth import (
     _b64url_decode,
     required_peer_key_unverified,
 )
+from kiro_crew.loop_lock import LoopBoundLock
 from kiro_crew.messaging.link import is_channel_session_key
 from kiro_crew.messaging.privacy_mode import hydrate as _hydrate_conv_flags
 from kiro_crew.messaging.privacy_mode import is_incognito as is_thread_incognito
@@ -361,6 +363,114 @@ def _capability_manager() -> "CapabilityManager":
         lambda: current_context().capability_manager,
         fallback_factory=lambda: bind_capability_manager(DefaultCapabilityManager()),
         log_message="capability_manager lookup failed; treating as unavailable",
+    )
+
+
+def _session_memory_store(state: DashboardState, session_key: str) -> str:
+    """The NAMED silo *session_key* writes to, or ``""`` for the global store.
+
+    Reads the session's own recorded binding, which is the same source the
+    consolidator uses (``history_consolidation._session_store_name``) — so a
+    durable write the AGENT makes lands in the silo its consolidations land in.
+    Without this a crew's ``learn_add`` wrote into the global lessons table that
+    every OTHER crew reads on every turn, while the crew's own context injected
+    only its silo's lessons: one crew steering every crew, and its own correction
+    never reaching its later turns.
+
+    Unavailable recorded identity raises; it never turns into a global write.
+
+    A thin adapter over ``context.store_of_session``, which is where the resolution
+    lives: the channel surfaces hold a ``ContextBuilder`` rather than a
+    ``DashboardState``, and two copies of "read the recorded binding" are how the
+    dashboard's answer and a channel's answer drift apart for one session.
+    """
+    from kiro_crew.context import store_of_session
+
+    return store_of_session(state.conversation_log, session_key)
+
+
+async def resolve_lesson_memory_store(
+    request: web.Request, state: DashboardState, operation: str
+) -> tuple[str, web.Response | None]:
+    """Authorize a lessons request before it uses a session's named store.
+
+    Lessons are an agent-facing API, so verified internal calls retain their
+    recorded binding. A browser or app token cannot borrow that authority by
+    supplying another session's X-Session-Key: a named store then requires the
+    dashboard owner. Only authentication middleware publishes internal_auth;
+    a request header claiming to carry an internal secret is not evidence.
+
+    No named binding preserves the existing global/workspace lessons contract.
+    """
+    try:
+        store = await asyncio.to_thread(
+            _session_memory_store, state, request.headers.get("X-Session-Key", "")
+        )
+    except (ValueError, OSError):
+        return "", web.json_response(
+            {
+                "error": "The member's memory binding is unavailable; global memory was not used.",
+                "code": "store_unavailable",
+            },
+            status=503,
+        )
+    if store and request.get("internal_auth") is not True:
+        denial = await require_owner_dashboard_request(request, operation)
+        if denial is not None:
+            return "", denial
+    elif request.get("internal_auth") is True:
+        refusal = await require_private_memory_session(request, store, operation)
+        if refusal is not None:
+            return "", refusal
+    return store, None
+
+
+async def require_private_memory_session(
+    request: web.Request, store: str, operation: str, *, session_key: str | None = None
+) -> web.Response | None:
+    """Authorize an actual member session, retaining owner and Global V1 access."""
+    from kiro_crew.memory_stores import memory_store_version
+
+    private = bool(store and memory_store_version(store) == 2)
+    if request.get("internal_auth") is not True:
+        return await require_owner_dashboard_request(request, operation) if private else None
+    from kiro_crew.member_memory_auth import (
+        PROOF_HEADER,
+        memory_request_bound_store,
+        memory_request_identity,
+        private_memory_boundaries_active,
+    )
+
+    declared = request.headers.get("X-Session-Key", "")
+    actual, verified = await asyncio.to_thread(memory_request_identity, request)
+    if verified and actual is None and not private:
+        return None
+    if (
+        not verified
+        and not private
+        and not request.headers.get(PROOF_HEADER)
+        and not await asyncio.to_thread(private_memory_boundaries_active)
+    ):
+        return None
+    if (
+        verified
+        and actual
+        and actual == declared
+        and (session_key is None or session_key == actual)
+    ):
+        try:
+            bound = await asyncio.to_thread(memory_request_bound_store, request)
+        except (ValueError, OSError):
+            bound = None
+        if bound == store:
+            return None
+    return web.json_response(
+        {
+            "error": "This caller's member session could not be verified. "
+            "Retry from the member's active MCP connection; global memory was not used.",
+            "code": "member_session_unverified",
+        },
+        status=403,
     )
 
 
@@ -2057,3 +2167,155 @@ def pip_extra_install_command(extra: str) -> str:
     empty command as "no install channel" and show the unsupported notice.
     """
     return extras.pip_install_command(extra)
+
+
+#: Query parameter naming the memory store a request addresses. One spelling,
+#: read only by :func:`resolve_requested_memory_store`, because the whole
+#: security property below rests on "the parameter is present" and a second
+#: hand-typed spelling is how one route starts answering for a store the gate
+#: never saw.
+MEMORY_STORE_PARAM = "store"
+
+
+async def resolve_requested_memory_store(
+    request: web.Request,
+    state: DashboardState,
+    operation: str,
+) -> tuple[str, web.Response | None]:
+    """The memory store this request addresses, or a refusal.
+
+    Answers ``("", None)`` for the global store and ``(name, None)`` for a silo.
+    The second element is a response to return AS-IS when the request may not
+    have the store it asked for.
+
+    **An absent parameter always addresses the global store.** ``X-Session-Key``
+    is unverified on TCP, so reading that session's recorded binding would let a
+    non-owner dashboard token address any silo by naming another session. This
+    rule covers every content route, including facet pages and grouped counts.
+    With the parameter, the request is asking to
+    address a store it was not handed, which is the OPERATOR's question rather
+    than a caller's, and it takes the owner gate.
+
+    Gating on presence rather than on "the name differs from my binding" is
+    deliberate, and the difference is not cosmetic: ``?store=default`` names the
+    operator's own global memory, so a rule that only fired on a *mismatch*
+    would wave through the single most sensitive value the parameter can carry
+    whenever the caller happened to be unbound.
+
+    The gate is :func:`require_owner_dashboard_request`, and it excludes an agent
+    POSITIVELY rather than by asking "is this not an agent". It requires a
+    non-empty ``request["user"]``, and ``token_auth_middleware`` sets that key on
+    the cookie/query-token path ONLY -- its ``X-Internal-Secret`` branch (kiro-cli,
+    MCP, subagents) hands the request straight to the handler without ever
+    publishing an identity. So "the caller proved it is the dashboard owner" is
+    the thing being checked, and an agent fails it because it has no identity to
+    present, not because it was recognised and rejected. That cross-module
+    property is what makes the parameter safe, so
+    ``test_memory_store_param_is_owner_only`` pins it rather than trusting it to
+    stay true.
+
+    An UNDECLARED name is a 404 and never a degrade. ``resolve_store_path``
+    deliberately degrades an unknown name onto the default store, which here
+    would render the operator's own memory under the label of a store that does
+    not exist -- the request would look like it worked. A malformed name gets the
+    same answer as an unknown one on purpose: distinguishing them would report
+    whether a given name is declared to a caller that has not passed the gate.
+
+    Every refusal carries a machine-readable ``code``, since backend strings have
+    no catalog path.
+    """
+    from kiro_crew.memory_stores import (
+        DEFAULT_MEMORY_STORE,
+        declared_store_names,
+        named_store_or_empty,
+    )
+
+    if MEMORY_STORE_PARAM not in request.query:
+        refusal = await require_private_memory_session(request, "", operation)
+        return "", refusal
+
+    denial = await require_owner_dashboard_request(request, operation)
+    if denial is not None:
+        return "", denial
+
+    requested = request.query[MEMORY_STORE_PARAM].strip() or DEFAULT_MEMORY_STORE
+    if requested not in declared_store_names():
+        return "", web.json_response(
+            {
+                "error": f"no memory store named {requested!r} is declared",
+                "code": "unknown_memory_store",
+            },
+            status=404,
+        )
+    return named_store_or_empty(requested), None
+
+
+#: Guards the per-store caches below. ONE lock rather than one per store: building
+#: a store happens once per store per gateway lifetime, so contention is
+#: irrelevant, while a per-store lock map needs its own lock to be built safely
+#: and buys nothing.
+_store_tier_lock = LoopBoundLock()
+
+
+async def markdown_memory_for_store(state: DashboardState, store: str):
+    """The MARKDOWN tier (preferences, projects, daily history, FTS) for *store*.
+
+    ``""`` returns the object the gateway already wired at startup, so the default
+    store's markdown path is untouched by the existence of this function -- the
+    same reason :func:`resolve_requested_memory_store` treats an absent parameter
+    as the global store.
+
+    A silo gets its own :class:`~kiro_crew.memory.MemoryStore` over that store's
+    two resolved roots. Both come from ``memory_stores``, which is the one module
+    that knows a store name maps to a DIFFERENT markdown root and FTS index --
+    and they are separate questions, so passing one path twice would put a silo's
+    index inside the default store's tree.
+
+    ``init()`` is blocking file IO (directory creation, an owner-only tighten, an
+    FTS open), so it is offloaded; the cache is published under a lock because two
+    concurrent requests for a store nobody has opened would otherwise each build
+    one and the loser's handle would leak its FTS connection.
+    """
+    if not store:
+        return _get_memory(state)
+    cache: dict[str, Any] = getattr(state, "_store_markdown", None) or {}
+    if store in cache:
+        return cache[store]
+    async with _store_tier_lock:
+        cache = getattr(state, "_store_markdown", None) or {}
+        if store in cache:
+            return cache[store]
+        from kiro_crew.memory import MemoryStore
+        from kiro_crew.memory_stores import (
+            memory_index_path_for,
+            memory_store_dir_for,
+            memory_store_version,
+        )
+
+        version = await asyncio.to_thread(memory_store_version, store)
+        mem = MemoryStore(
+            workspace=memory_store_dir_for(store),
+            index_db=memory_index_path_for(store),
+            memory_version=version,
+        )
+        await asyncio.to_thread(mem.init)
+        cache[store] = mem
+        state._store_markdown = cache  # type: ignore[attr-defined]
+        return mem
+
+
+async def vector_memory_for_store(state: DashboardState, store: str):
+    """The VECTOR tier for *store*, or ``None`` when a silo's cannot be stood up.
+
+    ``None`` is returned ONLY for a silo, and a caller must report it rather than
+    falling back to the global store: serving the operator's own memory under a
+    crew's name is the one failure the file boundary exists to prevent, and it is
+    invisible in the response.
+    """
+    if not store:
+        from kiro_crew.dashboard.handlers.memory import _get_vector_store_async
+
+        return await _get_vector_store_async(state)
+    from kiro_crew.context import ContextBuilder
+
+    return await ContextBuilder.ensure_store(store)

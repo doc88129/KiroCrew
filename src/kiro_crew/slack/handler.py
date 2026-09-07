@@ -54,6 +54,7 @@ from kiro_crew.context import (
     ContextBuilder,
     build_cancelled_turn_preamble,
     compress_thread_history,
+    session_store_for_turn,
     window_for_provider_client,
 )
 from kiro_crew.cron import CronService
@@ -79,6 +80,7 @@ from kiro_crew.llm_helpers import (
     record_interaction_event,
     save_conversation_turn_off_loop,
 )
+from kiro_crew.memory_stores import UnknownMemoryStore
 from kiro_crew.messaging import auto_title, privacy_mode
 from kiro_crew.messaging.commands import (
     compact_unsupported_backend,
@@ -925,8 +927,10 @@ def _hydrate_thread_overrides(session_key: str, conversation_log: ConversationLo
     except Exception:
         logger.debug("Failed to hydrate thread overrides for %s", session_key, exc_info=True)
         return
-    if meta.get("agent"):
-        _thread_agents[session_key] = meta["agent"]
+    from kiro_crew.messaging.session_resume import session_agent_from_metadata
+
+    if resolved_agent := session_agent_from_metadata(meta) or meta.get("agent"):
+        _thread_agents[session_key] = resolved_agent
     if meta.get("project"):
         # Defense-in-depth: re-validate the persisted path at this input
         # boundary. Conversation-log metadata is normally written through the
@@ -3255,6 +3259,7 @@ async def handle_message(
         # Re-resolve _agent against (possibly linked) session_key for the main
         # LLM path — linked dashboard sessions may carry a different thread agent.
         _agent = _thread_agents.get(session_key) or channel_agent or _get_default_agent() or None
+        _memory_store = await session_store_for_turn(context_builder, session_key)
         client, is_new, resumed = await sessions.get_or_create(
             session_key, agent=_agent, channel_id=channel
         )
@@ -3390,6 +3395,16 @@ async def handle_message(
                         thread_ts,
                     )
 
+            # This conversation's own silo, resolved from the session's RECORDED
+            # binding and never from ``_agent`` -- on Slack that value is a kiro
+            # agent name, a namespace disjoint from ``cfg.agents``, so deriving a
+            # store from it answers ``default`` for exactly the crew that
+            # configured otherwise. A thread taken over from a crew-bound
+            # dashboard session carries that crew's key here, which is what stops
+            # the takeover from reading the operator's own memory instead.
+            #
+            # The private tier was prepared before provider acquisition. Missing
+            # or unreadable member memory refuses the turn with its own error.
             # Off-loop: build_message embeds the episodic query (blocking urllib).
             full_message, _ = await run_in_embed_pool(
                 context_builder.build_message,
@@ -3399,6 +3414,7 @@ async def handle_message(
                 channel_id=channel,
                 thread_ts=thread_ts or msg_ts,
                 agent=_agent,
+                memory_store=_memory_store,
                 resumed=resumed,
                 user_display_name=user_display_name,
                 compressed_history=compressed,
@@ -3868,6 +3884,11 @@ async def handle_message(
         accumulated = f"❌ {e}"
         task.fail(str(e))
         await sessions.record_failure(session_key)
+        Stats().inc_message_failed()
+    except UnknownMemoryStore as exc:
+        _had_error = True
+        accumulated = str(exc)[:1000]
+        task.fail("memory_unavailable")
         Stats().inc_message_failed()
     except Exception:
         _had_error = True

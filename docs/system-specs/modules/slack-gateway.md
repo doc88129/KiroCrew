@@ -4,6 +4,14 @@
 
 The Slack integration (`kiro_crew/slack/`) connects KiroCrew to Slack via Socket Mode. DMs are routed through ACP to kiro-cli with real-time streaming and interactive tool approval.
 
+At startup, pending complete member-memory restores activate before opening
+memory stores or context builders. Activation failure aborts startup with the
+member-specific recovery reason and preserves the previous directory. During
+operation, member cron jobs, linked DMs, nudges and completion injections validate
+their own recorded memory identity before acquiring a provider. Completion
+injections use the parent conversation's memory; delegates keep their target's
+private memory for the delegated run and retries.
+
 ## Architecture
 
 ```

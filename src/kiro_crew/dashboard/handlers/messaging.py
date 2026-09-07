@@ -195,6 +195,12 @@ async def api_spawn(request: web.Request) -> web.Response:
                 "include_memory": body.get("include_memory", True),
                 "include_lessons": body.get("include_lessons", True),
                 "include_project": body.get("include_project", True),
+                # The dict is CLOSED -- validate_tool_args only sees what is
+                # listed here -- so omitting a schema field silently disables it
+                # rather than failing. That is what made the crew delegation
+                # below unreachable: the block, its unknown_crew refusal and its
+                # store resolution all ran off a value that was always None.
+                "crew": body.get("crew", ""),
             },
             SPAWN_RUN_SCHEMA,
         )
@@ -226,6 +232,60 @@ async def api_spawn(request: web.Request) -> web.Response:
     if not isinstance(keep, bool):
         keep = str(keep).lower() in ("true", "1", "yes")
     agent = cleaned.get("agent") or ""
+    # DELEGATION TO A NAMED CREW. Resolved once, here, through the shared
+    # binding resolver -- the store must never be derived from `agent`, which
+    # holds a kiro-cli template id and would answer `default` for exactly the
+    # crew that configured otherwise, silently, toward the operator's own memory.
+    #
+    # An unknown crew is REFUSED rather than degraded. Everywhere else an
+    # unresolvable store falls back to the global one, which is the safe
+    # direction; here it is the unsafe one: the caller's whole reason for naming
+    # a crew is to keep this task inside that crew's memory, so quietly running
+    # it against the operator's store is the leak the parameter exists to
+    # prevent. Fail loudly and let the caller pick a real crew.
+    crew = cleaned.get("crew") or ""
+    child_memory_store = ""
+    if crew:
+        from kiro_crew.config.loader import KiroCrewConfig, resolve_agent_bindings
+
+        try:
+            _cfg = await asyncio.to_thread(KiroCrewConfig.load)
+        except Exception:
+            return web.json_response(
+                {"error": "cannot read the crew roster", "code": "crew_unresolvable"}, status=503
+            )
+        if crew not in _cfg.agents:
+            return web.json_response(
+                {
+                    "error": f"unknown crew '{crew}'",
+                    "code": "unknown_crew",
+                    "available": ", ".join(sorted(_cfg.agents)) or "(none)",
+                },
+                status=400,
+            )
+        try:
+            _b = resolve_agent_bindings(_cfg, crew)
+        except (OSError, ValueError) as exc:
+            return web.json_response({"error": str(exc), "code": "memory_unavailable"}, status=409)
+        child_memory_store = _b.memory_store_name
+        # The crew's template too: a crew is its memory AND its harness, and
+        # honouring one without the other hands the task a persona the operator
+        # did not bind to that work. An explicit `agent` still wins -- a caller
+        # naming both is overriding deliberately.
+        agent = agent or _b.kiro_agent
+    elif parent_session:
+        from kiro_crew.context import store_of_session
+
+        try:
+            child_memory_store = await asyncio.to_thread(
+                store_of_session, state.conversation_log, parent_session
+            )
+            if parent_session.startswith("subagent:"):
+                child_memory_store = state.subagents._inherited_memory_store(
+                    parent_session.removeprefix("subagent:")
+                )
+        except (OSError, ValueError) as exc:
+            return web.json_response({"error": str(exc), "code": "memory_unavailable"}, status=409)
     max_turns = cleaned.get("max_turns") or 0
     cwd = cleaned.get("cwd") or ""
     model = cleaned.get("model") or ""
@@ -259,6 +319,7 @@ async def api_spawn(request: web.Request) -> web.Response:
         include_memory=cleaned.get("include_memory", True) is not False,
         include_lessons=cleaned.get("include_lessons", True) is not False,
         include_project=cleaned.get("include_project", True) is not False,
+        memory_store=child_memory_store,
     )
     if not info:
         # Reached mgr.spawn (submission COUNTED at the top of spawn()) but
@@ -808,6 +869,10 @@ async def api_spawn_retry(request: web.Request) -> web.Response:
         include_memory=old.include_memory,
         include_lessons=old.include_lessons,
         include_project=old.include_project,
+        # Same scope the original ran under. Omitting it makes a retry widen to
+        # the global store, so the failure mode is "retrying a delegation leaks
+        # it" -- and a retry is exactly when nobody re-reads the scope.
+        memory_store=old.memory_store,
     )
     if not info:
         return web.json_response(

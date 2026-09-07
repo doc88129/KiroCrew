@@ -378,8 +378,14 @@ def _resolve_excluded_tools(caller_session: str = "") -> set[str]:
 
         # Resolve session key: the verified per-call caller identity wins
         # (pooled topology); env/PID resolution is the single-session path.
-        session_key = caller_session or os.environ.get("KIROCREW_SESSION_KEY", "")
-        if not session_key:
+        from kiro_crew.member_memory_auth import protected_member_session_for_pid
+
+        protected = None if caller_session else protected_member_session_for_pid(os.getpid())
+        session_key = caller_session or (
+            protected if protected is not None else os.environ.get("KIROCREW_SESSION_KEY", "")
+        )
+        if not session_key and protected is None:
+
             def _ppid_via_libproc(pid: int) -> int:
                 """macOS parent-PID via libproc proc_pidinfo (no exec, sandbox-safe)."""
                 proc_pidtbsdinfo = 3

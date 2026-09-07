@@ -962,12 +962,10 @@ def _edit_target_denial(
     An edit's ``tool_input`` is a DOCUMENT: ``_dispatch.derive_edit_diff`` renders
     the file's new content (or a strReplace pair) as a unified diff, and that text
     is what ``event.tool_input`` carries. Handing it to :func:`_first_tool_input_denial`
-    read the document as a shell command line, so writing a Markdown page that says
-    ``git push origin main``, a docstring that says ``kirocrew restart``, or prose
-    that names ``~/.ssh`` was refused -- and a body over
-    :data:`_MAX_SCANNABLE_TOOL_INPUT_CHARS` was refused for its LENGTH (#8812). That
-    is the same defect class #9082 closed for cron script bodies: a document is not
-    the shell gate's subject.
+    would misread the document as a shell command line: Markdown can say
+    ``git push origin main``, a docstring can say ``kirocrew restart``, and prose
+    can name ``~/.ssh`` or exceed :data:`_MAX_SCANNABLE_TOOL_INPUT_CHARS`.
+    The shell gate applies to commands rather than document content.
 
     What an edit can actually do is decided by WHERE it writes, so the gate for an
     edit is the resolved target path, exactly as ``hooks.on_tool_call`` decides it:
@@ -986,8 +984,7 @@ def _edit_target_denial(
     block together name no target has no proven target to judge, and is denied
     rather than approved blind -- the document scan is not a fallback here,
     because a document that happens to contain no denied text is not evidence
-    that the write is safe (#8812 is exactly a document being read as a
-    command; #9082 is the same class). The caller only reaches this on trusted
+    that the write is safe. The caller only reaches this on trusted
     provenance (see ``_resolve_permission``); an edit with no params at all
     never gets here and keeps the document scan.
     """
@@ -1516,6 +1513,7 @@ async def background_turn(
     *,
     task: str,
     agent: "str | None" = None,
+    memory_store: str = "",
 ) -> "AsyncIterator[Any]":
     """Take the shared background session for ONE turn, then release and account.
 
@@ -1547,10 +1545,25 @@ async def background_turn(
     """
     from kiro_crew.session import BACKGROUND_AGENT, BACKGROUND_KEY  # circular import
 
+    key = BACKGROUND_KEY
+    if memory_store:
+        from uuid import uuid4
+
+        from kiro_crew.history import ConversationLog
+        from kiro_crew.member_memory_auth import bind_private_session_store
+        from kiro_crew.memory_stores import memory_store_version, require_memory_store
+
+        await asyncio.to_thread(require_memory_store, memory_store)
+        if memory_store_version(memory_store) != 2:
+            raise ValueError("Dedicated member consolidation requires private V2 memory")
+        key = f"memory-consolidation:{memory_store}:{uuid4().hex}"
+        log = ConversationLog()
+        await asyncio.to_thread(log.update_metadata, key, {"memory_store": memory_store})
+        await asyncio.to_thread(bind_private_session_store, key, memory_store)
     if agent is None:
-        client, _new, _resumed = await sessions.get_or_create(BACKGROUND_KEY)
+        client, _new, _resumed = await sessions.get_or_create(key)
     else:
-        client, _new, _resumed = await sessions.get_or_create(BACKGROUND_KEY, agent=agent)
+        client, _new, _resumed = await sessions.get_or_create(key, agent=agent)
     # The stats object as it stands BEFORE this turn. The shared session serves
     # many turns, and the runner replaces this object only once a turn actually
     # begins, so identity is what separates a turn that ran from one whose
@@ -1578,7 +1591,7 @@ async def background_turn(
         # and an await ordered ahead of this would let a cancelled task hold the
         # shared semaphore forever.
         try:
-            sessions.release(BACKGROUND_KEY)
+            sessions.release(key)
         except Exception:
             logger.debug("background session release failed task=%s", task, exc_info=True)
         # Recycle sits in a finally for the same cancellation reason, and follows
@@ -1600,7 +1613,7 @@ async def background_turn(
                 # dimensions alongside the kiro credits/token signals.
                 if usage_has_billing(usage):
                     await persist_token_record_async(
-                        BACKGROUND_KEY,
+                        key,
                         "",
                         usage,
                         _provider_label(client),
@@ -1613,7 +1626,10 @@ async def background_turn(
                 logger.debug("background turn accounting failed task=%s", task, exc_info=True)
         finally:
             try:
-                await sessions.recycle_background()
+                if memory_store:
+                    await sessions.remove(key)
+                else:
+                    await sessions.recycle_background()
             except Exception:
                 logger.debug("background recycle failed task=%s", task, exc_info=True)
 

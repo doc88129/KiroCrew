@@ -23,6 +23,7 @@ import re
 import time
 from typing import TYPE_CHECKING, Any, cast
 
+from kiro_crew.context import session_store_for_turn
 from kiro_crew.dashboard.chat_utils import (
     expire_slack_options,
     mint_options_token,
@@ -31,6 +32,7 @@ from kiro_crew.dashboard.chat_utils import (
 from kiro_crew.executors import run_in_embed_pool
 from kiro_crew.hooks import HOOK_REPLY, TOOL_AUTO_APPROVE, TOOL_DENY
 from kiro_crew.llm_helpers import save_conversation_turn_off_loop
+from kiro_crew.memory_stores import UnknownMemoryStore
 from kiro_crew.messaging import auto_title
 from kiro_crew.messaging.dispatch import build_directive_consumer
 from kiro_crew.messaging.driver import APPROVAL_INTERACTIVE, TurnDriver
@@ -437,6 +439,7 @@ async def handle_message_transport(
             or _get_default_agent()
             or _DEFAULT_KIROCREW_AGENT
         )
+        _memory_store = await session_store_for_turn(context_builder, session_key)
         client, is_new, resumed = await sessions.get_or_create(
             session_key, agent=_agent, channel_id=channel
         )
@@ -539,6 +542,12 @@ async def handle_message_transport(
 
         # ── Build message with context ──
         if context_builder:
+            # This conversation's own silo, from the session's RECORDED binding and
+            # never from ``_agent``: the values above are kiro agent names, a
+            # namespace disjoint from ``cfg.agents``, so a store derived from one
+            # resolves to ``default`` for exactly the crew that configured
+            # otherwise. Its private tier was validated and prepared before
+            # provider acquisition; an unavailable member store refuses the turn.
             # Off-loop: build_message embeds the episodic query (blocking urllib).
             full_message, _ = await run_in_embed_pool(
                 context_builder.build_message,
@@ -548,6 +557,7 @@ async def handle_message_transport(
                 channel_id=channel,
                 thread_ts=thread_ts or msg_ts,
                 agent=_agent,
+                memory_store=_memory_store,
                 resumed=resumed,
                 user_display_name=user_display_name,
                 # Temporary mode reads NO memory, and that is the half the
@@ -867,7 +877,7 @@ async def handle_message_transport(
         logger.info("Aborting Slack dispatch for %s — gateway is shutting down", session_key)
         with contextlib.suppress(Exception):
             await slack.set_thread_status(channel, reply_ts, "")
-    except Exception:
+    except Exception as exc:
         logger.exception("transport_dispatch: error handling message")
         Stats().inc_message_failed()
         if client and _acquired:
@@ -976,7 +986,13 @@ async def handle_message_transport(
         else:
             try:
                 await slack.post_message(
-                    channel, "🔧 Something went wrong (transport path). Please try again.", reply_ts
+                    channel,
+                    (
+                        str(exc)[:1000]
+                        if isinstance(exc, UnknownMemoryStore)
+                        else "🔧 Something went wrong (transport path). Please try again."
+                    ),
+                    reply_ts,
                 )
             except Exception:
                 pass

@@ -14,6 +14,16 @@ Several are selectable on a plain public build, so "one provider" never meant
 
 ### Architecture
 
+Private V2 process isolation is a trusted factory decision. The factory resolves
+the session's persisted/protected member memory and passes `private_memory=True`
+through `AcpProvider`, `AcpClient` and `AcpRuntime`, including a recovery respawn.
+Caller extra kwargs and environment variables cannot opt into or out of that
+decision. The actual sandbox spawn applies the member-specific Global V1 masks
+and refuses an unenforced mode; the earlier context check is not a substitute.
+Private sessions bypass the global warm/shared runtime inventory. Dedicated
+private consolidation uses the same factory boundary; V1 factory call shapes
+and background/pool behavior remain unchanged.
+
 ```
 ┌─────────────────────────────────────────────┐
 │  Consumers (handler, gateway, cli, session) │

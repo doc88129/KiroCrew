@@ -1,5 +1,5 @@
 /**
- * The reduced-motion fix must not become "nobody gets the animation".
+ * Initial labels remain readable; selection changes still animate.
  *
  * This is the negative half of `SegmentedControl.reducedMotion.test.tsx`, kept in
  * its own file on purpose: framer-motion reads `prefers-reduced-motion` once into
@@ -18,7 +18,7 @@ const SEGMENTS = [
 describe('SegmentedControl — motion kept for everyone else', () => {
   afterEach(() => vi.unstubAllGlobals())
 
-  it('still animates from zero width when motion is not reduced', async () => {
+  it('shows initial labels immediately and animates later compact selection changes', async () => {
     vi.stubGlobal('matchMedia', (query: string) => ({
       matches: false,
       media: query,
@@ -30,7 +30,9 @@ describe('SegmentedControl — motion kept for everyone else', () => {
       dispatchEvent: vi.fn(),
     }))
     const { default: SegmentedControl } = await import('../components/SegmentedControl')
-    render(<SegmentedControl segments={SEGMENTS} value="grid" onChange={() => {}} collapse={false} />)
-    expect(screen.getByText('Gallery').style.width).toBe('0px')
+    const { rerender } = render(<SegmentedControl segments={SEGMENTS} value="grid" onChange={() => {}} compact />)
+    expect(screen.getByText('Gallery').style.width).not.toBe('0px')
+    rerender(<SegmentedControl segments={SEGMENTS} value="table" onChange={() => {}} compact />)
+    expect(screen.getByText('Table').style.width).toBe('0px')
   })
 })

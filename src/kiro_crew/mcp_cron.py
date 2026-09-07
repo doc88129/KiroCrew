@@ -1176,6 +1176,12 @@ def _list_tools() -> list[dict[str, Any]]:
                         "description": "Agent name for this job (e.g. 'customer360-code-agent'). "
                         "Empty or omitted uses the default kirocrew agent.",
                     },
+                    "member_id": {
+                        "type": "string",
+                        "description": "Crew Member responsible for this schedule. Uses that "
+                        "member's private memory. Omit to inherit the creating conversation's "
+                        "member; ordinary conversations retain global V1 memory.",
+                    },
                     "silent": {
                         "type": "boolean",
                         "description": "When true, suppress automatic message delivery. "
@@ -1636,6 +1642,48 @@ def _validate_args(name: str, args: dict[str, Any]) -> dict[str, Any]:
 
 def _call_tool(name: str, raw_args: dict[str, Any]) -> str:
     """Execute a cron tool and return the result as text."""
+    from kiro_crew.config.paths import private_runtime_log_dir
+
+    if private_runtime_log_dir() is not None:
+        # This marker selects a transport only. The gateway independently
+        # verifies the process/session/store before opening the cron store.
+        from kiro_crew.mcp_core import _post
+
+        session_key, refusal = require_strict_session_key(
+            "Cannot verify this private cron caller. Reopen the member conversation.",
+            server="kirocrew-cron",
+        )
+        if refusal:
+            return f"Error: {refusal}"
+        args = dict(raw_args)
+        if name == "cron_add" and not args.get("channel"):
+            # Preserve the direct runtime's delivery default as an ordinary,
+            # server-validated argument; it confers no ownership authority.
+            channel = _caller_channel_id() or os.environ.get("KIROCREW_CHANNEL_ID")
+            if channel:
+                args["channel"] = channel
+        response = _post(
+            "/api/crons/tools", {"name": name, "arguments": args}, session_key=session_key
+        )
+        if response.get("error"):
+            advice = (
+                " Outcome unknown; check cron_list before retrying a mutation."
+                if response.get("transport_error")
+                else ""
+            )
+            return f"Error: {response['error']}{advice}"
+        result = response.get("result")
+        if not isinstance(result, str):
+            return (
+                "Error: the cron gateway returned an invalid response. "
+                "Check cron_list before retrying a mutation."
+            )
+        return result
+    return _call_tool_locally(name, raw_args)
+
+
+def _call_tool_locally(name: str, raw_args: dict[str, Any]) -> str:
+    """Validated host dispatch, also used by the authenticated HTTP boundary."""
     return call_tool_with_logging(
         name,
         raw_args,
@@ -2259,6 +2307,7 @@ def _call_tool_inner(name: str, args: dict[str, Any]) -> str:
                 timezone=tz,
                 skip_dates=skip_dates,
                 agent_id=agent or "",
+                member_id=args.get("member_id", ""),
                 approval_mode=approval_mode or "",
                 model=model_arg,
                 silent=bool(silent),

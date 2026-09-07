@@ -92,7 +92,7 @@ from kiro_crew.config.loader import (
 )
 from kiro_crew.config.paths import kiro_agents_dir
 from kiro_crew.constants import DATA_WARNING, SUBAGENT_COMPLETION_META_KEY, strip_control_comments
-from kiro_crew.context import ContextBuilder
+from kiro_crew.context import ContextBuilder, session_store_for_turn
 from kiro_crew.context_management import summarize_result
 from kiro_crew.cron import (
     _SUBPROC_CLEANUP_ALLOWANCE_SECS,
@@ -1088,7 +1088,7 @@ class _ClaimHandoff:
 class CronVetOverran(Exception):
     """The claim-time vet spent more than the allowance the deadline carries for it.
 
-    Starting the payload anyway is the harm: the remaining budget no longer
+    Starting the payload anyway is the harm: the remaining budget does not
     covers the subprocess bound plus
     :data:`~kiro_crew.cron._SUBPROC_CLEANUP_ALLOWANCE_SECS`, so the deadline
     would fire with the subprocess already running -- and a thread cannot be
@@ -1187,7 +1187,7 @@ def _vet_at_claim_then(
     caller's backstop carries an allowance for it (:func:`_claim_backstop`), and
     an allowance is only a guarantee if the thing it covers cannot exceed it --
     so a vet that overruns refuses its payload instead of starting one whose
-    remaining margin no longer covers the subprocess and its teardown.  Measured
+    remaining margin cannot cover the subprocess and its teardown.  Measured
     on ``monotonic`` so a clock adjustment cannot make an overrun look fine.
     """
     started_at = time.monotonic()
@@ -2925,6 +2925,15 @@ class GatewayOrchestrator:
         self.slack = RealSlackClient(self._bot_token) if self._slack_enabled else None
         factory = build_provider_factory(self._cfg)
 
+        # Pending member restores activate only at gateway startup, before any
+        # tier or background reader can hold the old store. Failure aborts boot
+        # with the restore helper's store-specific recovery explanation.
+        from kiro_crew.memory_backup import apply_pending_member_restores
+
+        restored_members = await asyncio.to_thread(apply_pending_member_restores)
+        if restored_members:
+            logger.info("Activated private memory restores for %s", ", ".join(restored_members))
+
         # Memory, skills, hooks, lessons
         memory = MemoryStore()
         memory.init()
@@ -3857,6 +3866,10 @@ class GatewayOrchestrator:
             # decides whether to prepend last_result, based on job.persistent_session.
             session_key, msg = build_cron_session_context(job)
 
+            from kiro_crew.cron import resolve_cron_memory
+
+            cron_memory_store, cron_agent = await asyncio.to_thread(resolve_cron_memory, job)
+
             # ── Concurrent execution guard ──
             if (job.script or job.command) and job.id in self._running_script_ids:
                 logger.info("Cron '%s': previous execution still running, skipping", job.name)
@@ -4703,6 +4716,22 @@ class GatewayOrchestrator:
                 unavailable, retry once with the registry default.
                 Returns (client, is_new, resumed, downgraded)."""
                 assert self.sessions is not None
+                if cron_memory_store:
+                    from kiro_crew.context import prepare_store_vectors
+
+                    log = getattr(self.ctx_builder, "conversation_log", None)
+                    if log is None:
+                        raise RuntimeError(
+                            "memory_unavailable: cannot persist scheduled member identity"
+                        )
+                    await asyncio.to_thread(
+                        log.update_metadata,
+                        key,
+                        {"memory_store": cron_memory_store, "agent": job.member_id},
+                    )
+                    await prepare_store_vectors(
+                        self.ctx_builder, cron_memory_store, session_key=key
+                    )
                 try:
                     client, is_new, resumed = await self.sessions.get_or_create(
                         key,
@@ -4786,6 +4815,7 @@ class GatewayOrchestrator:
                             True,
                             interactive=False,
                             agent=agent,
+                            memory_store=cron_memory_store or None,
                         )
                         # Wall clock for the cron agent turn: acp never assigns
                         # TurnUsage.duration_ms, so the row falls back to this.
@@ -4904,7 +4934,7 @@ class GatewayOrchestrator:
                 assert self.sessions is not None
                 assert self.ctx_builder is not None
                 client, is_new, _resumed, _model_downgraded = await _acquire_with_model_fallback(
-                    session_key, job.agent_id or None
+                    session_key, cron_agent or None
                 )
                 _acquired = True
                 # Same identity publish as the sequential site above — the
@@ -4925,6 +4955,7 @@ class GatewayOrchestrator:
                     True,
                     interactive=False,
                     agent=job.agent_id or None,
+                    memory_store=cron_memory_store or None,
                     provider_type=_provider,
                     minimal_context=job.minimal_context,
                 )
@@ -5875,6 +5906,7 @@ class GatewayOrchestrator:
         _raw_dispositions: list[MonitorActionDisposition] = []
         _completion_reported = False
         try:
+            _memory_store = await session_store_for_turn(self.ctx_builder, key)
             if wake_message is None:
                 client, is_new, _resumed = await self.sessions.get_or_create(key)
             else:
@@ -5883,8 +5915,19 @@ class GatewayOrchestrator:
                 )
             _acquired = True
             _provider = self._cfg.agent.provider if hasattr(self, "_cfg") else "acp"
+            # An auto-nudge cycle continues the NUDGED session's own conversation,
+            # so it reads that session's silo — resolved from its recorded binding,
+            # the same key its consolidations are filed under. Without it a
+            # crew-bound conversation gets nudged with the operator's own memory in
+            # the prompt, and the reply it produces is then filed into the crew's
+            # store as if the crew had said it.
             full_msg, _ = await run_in_embed_pool(
-                self.ctx_builder.build_message, tagged, is_new, key, provider_type=_provider
+                self.ctx_builder.build_message,
+                tagged,
+                is_new,
+                key,
+                memory_store=_memory_store,
+                provider_type=_provider,
             )
             _completion_hook = self._monitor_completion_hook(loop)
             if wake_message is not None and _completion_hook is None:
@@ -8332,16 +8375,24 @@ class GatewayOrchestrator:
                             _MAX_INJECT_ATTEMPTS,
                             parent_key,
                         )
+                        _memory_store = await session_store_for_turn(self.ctx_builder, parent_key)
                         client, is_new, _resumed = await self.sessions.get_or_create(parent_key)
                         _acquired = True
                         _footer_client = client
                         _provider = self._cfg.agent.provider if hasattr(self, "_cfg") else "acp"
                         if self.ctx_builder:
+                            # The completion is injected into the PARENT's
+                            # conversation, so it reads the parent session's silo,
+                            # resolved from that session's recorded binding. The
+                            # child's own store is not the answer here: this turn
+                            # continues the parent, and the reply it produces is
+                            # consolidated into the parent's store.
                             msg, _ = await run_in_embed_pool(
                                 self.ctx_builder.build_message,
                                 announce,
                                 is_new,
                                 parent_key,
+                                memory_store=_memory_store,
                                 provider_type=_provider,
                             )
                         else:
@@ -8551,15 +8602,20 @@ class GatewayOrchestrator:
                 acquired = False
                 cron_response: str | None = None
                 try:
+                    _memory_store = await session_store_for_turn(self.ctx_builder, parent_key)
                     client, is_new, _resumed = await self.sessions.get_or_create(parent_key)
                     acquired = True
                     _provider = self._cfg.agent.provider if hasattr(self, "_cfg") else "acp"
                     if self.ctx_builder:
+                        # Same rule as the interactive injection above: the turn
+                        # continues the PARENT conversation, so it reads the parent
+                        # session's silo from that session's recorded binding.
                         msg, _ = await run_in_embed_pool(
                             self.ctx_builder.build_message,
                             announce,
                             is_new,
                             parent_key,
+                            memory_store=_memory_store,
                             provider_type=_provider,
                         )
                     else:

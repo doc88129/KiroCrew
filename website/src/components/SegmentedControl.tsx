@@ -189,7 +189,7 @@ export default function SegmentedControl<T extends string = string>({ segments, 
                 />
               )}
               {s.icon && <span className="relative z-[1]">{s.icon}</span>}
-              <AnimatePresence>
+              <AnimatePresence initial={false}>
                 {labelShown && (
                   <motion.span
                     key={`label-${s.key}`}

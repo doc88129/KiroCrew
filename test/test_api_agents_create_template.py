@@ -57,6 +57,7 @@ def _fake_config():
     return SimpleNamespace(
         agent=SimpleNamespace(provider="acp"),
         agents={},
+        memory_stores={},
         default_agent="kirocrew",
         save=lambda: saved.append(True),
         saved=saved,
@@ -100,7 +101,7 @@ async def _post(body, cfg, installed=(), spy=None):
             return_value=cfg,
         ),
         patch(
-            "kiro_crew.dashboard.handlers.agents.update_config_locked",
+            "kiro_crew.config.loader.update_config_locked",
             new=_fake_update_config_locked,
         ),
         patch(

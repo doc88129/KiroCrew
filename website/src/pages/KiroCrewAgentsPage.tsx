@@ -36,11 +36,15 @@ import { errMessage } from '../utils/thunkError'
 import { EFFORT_LEVELS, effortLabel, modelSupportsEffort } from '../lib/effort'
 
 import { i18nT } from '../i18n/t'
+
+// An example input value, independent of the display language.
+const HEX_COLOR_EXAMPLE = '#4f8ef7'
 import ErrorNotice from '../components/ErrorNotice'
 /** Common shape returned by the agent/workspace mutation endpoints. */
 interface AgentMutationResult {
   error?: string
   name?: string
+  memory_store?: string
 }
 
 /** Fields sent when creating a crew. */
@@ -346,26 +350,33 @@ export function WorkspaceField({ options, value, onChange, onNewWorkspace }: {
   )
 }
 
-export function MemoryStoreField({ options, value, onChange }: {
-  options: string[]; value: string; onChange: (v: string) => void
+export function MemoryStoreField({ value = '', member, privateReady = false, onInitialize, onManage, busy = false, manageDisabled = false }: {
+  value?: string; member?: string; privateReady?: boolean
+  onInitialize?: () => void; onManage?: () => void; busy?: boolean; manageDisabled?: boolean
+  /** Compatibility for external callers; private stores are never selectable. */
+  options?: string[]; onChange?: (value: string) => void
 }) {
+  const isGlobal = member === 'default'
+  const hint = !member
+    ? i18nT('pages.kiroCrewAgentsPage.private_memory_auto')
+    : isGlobal
+      ? i18nT('pages.kiroCrewAgentsPage.global_memory_v1')
+      : privateReady
+        ? i18nT('pages.kiroCrewAgentsPage.private_memory_owned')
+        : i18nT('pages.kiroCrewAgentsPage.private_memory_legacy')
   return (
-    <Field
-      label={i18nT('pages.kiroCrewAgentsPage.memory_store')}
-      hint={i18nT('pages.kiroCrewAgentsPage.which_store_its_lessons_and_history_are_written')}
-      info={i18nT('pages.kiroCrewAgentsPage.bindings_preview_info')}
-    >
-      <SimpleSelect options={withCurrent(options, value)} value={value} onChange={onChange} aria-label={i18nT('pages.kiroCrewAgentsPage.memory_store')} />
-      {/* Show the "more coming" note only when `default` is the sole option —
-          an install that has declared extra `memory_stores` in config already
-          has a real choice here, and the copy must not contradict a picker
-          that is visibly offering other stores. */}
-      {options.length <= 1 && (
-        <span className="flex items-start gap-1.5 text-[11.5px] leading-relaxed text-accent">
-          <Sparkles className="lucide-inline h-3 w-3 mt-0.5 shrink-0" aria-hidden="true" />
-          {i18nT('pages.kiroCrewAgentsPage.additional_stores_coming_with_memory_v2')}
-        </span>
-      )}
+    <Field label={i18nT('pages.kiroCrewAgentsPage.memory_store')} hint={hint}>
+      {member && <span className="break-all font-mono text-[12px] text-muted">{isGlobal ? 'default' : value}</span>}
+      <div className="flex flex-wrap gap-2">
+        {member && !isGlobal && !privateReady && onInitialize && (
+          <Btn onClick={onInitialize} disabled={busy}>{i18nT('pages.kiroCrewAgentsPage.initialize_private_memory')}</Btn>
+        )}
+        {(isGlobal || privateReady) && onManage && (
+          <Btn onClick={onManage} disabled={busy || manageDisabled} title={manageDisabled ? i18nT('components.crewEditor.unsaved_changes') : undefined}>
+            {i18nT('pages.kiroCrewAgentsPage.manage_private_memory')}
+          </Btn>
+        )}
+      </div>
     </Field>
   )
 }
@@ -499,7 +510,7 @@ export function SessionColorField({ value, onChange }: { value: string; onChange
           aria-label={i18nT('pages.kiroCrewAgentsPage.session_color')}
         />
         <Input
-          placeholder="#rrggbb"
+          placeholder={HEX_COLOR_EXAMPLE}
           value={draft}
           onChange={e => {
             const v = e.target.value.trim().toLowerCase()
@@ -531,20 +542,18 @@ export function SessionColorField({ value, onChange }: { value: string; onChange
 function BindingFields({
   templateLabel, kiroAgentOptions, kiroAgent, setKiroAgent,
   workspaceOptions, workspace, setWorkspace, onNewWorkspace,
-  memoryStoreOptions, memoryStore, setMemoryStore,
   modelOptions, model, setModel,
 }: {
   templateLabel: string
   kiroAgentOptions: string[]; kiroAgent: string; setKiroAgent: (v: string) => void
   workspaceOptions: string[]; workspace: string; setWorkspace: (v: string) => void; onNewWorkspace: () => void
-  memoryStoreOptions: string[]; memoryStore: string; setMemoryStore: (v: string) => void
   modelOptions?: string[]; model?: string; setModel?: (v: string) => void
 }) {
   return (
     <>
       <TemplateField label={templateLabel} options={kiroAgentOptions} value={kiroAgent} onChange={setKiroAgent} />
       <WorkspaceField options={workspaceOptions} value={workspace} onChange={setWorkspace} onNewWorkspace={onNewWorkspace} />
-      <MemoryStoreField options={memoryStoreOptions} value={memoryStore} onChange={setMemoryStore} />
+      <MemoryStoreField />
       {modelOptions && setModel && model !== undefined && (
         <ModelField options={modelOptions} value={model} onChange={setModel} />
       )}
@@ -754,7 +763,6 @@ export default function KiroCrewAgentsPage({ embedded }: { embedded?: boolean } 
     queryKey: ['kirocrewConfig'],
     queryFn: () => api.kirocrewConfig(),
   })
-  const memoryStoreOptions = kirocrewCfg?.memory_stores ? Object.keys(kirocrewCfg.memory_stores) : ['default']
   // The three option lists above fall back to a built-in default when their
   // fetch fails, so without this the editor would offer `default` / `kirocrew`
   // as though those were the only choices. One notice, first failure wins.
@@ -985,6 +993,20 @@ export default function KiroCrewAgentsPage({ embedded }: { embedded?: boolean } 
     onSuccess: (r: AgentMutationResult, vars) => { settleFor(vars.epoch, r.error); refetchAgents() },
     onError: (e: Error, vars) => settleFor(vars.epoch, e.message || i18nT('pages.kiroCrewAgentsPage.failed_to_update_agent')),
   })
+  const provisionMut = useMutation({
+    mutationFn: ({ name }: { name: string; epoch: number }) => api.updateKirocrewAgent(name, { provision_memory: true }),
+    onSuccess: (r: AgentMutationResult, vars) => {
+      void refetchAgents()
+      void queryClient.invalidateQueries({ queryKey: ['kirocrewConfig'] })
+      void queryClient.invalidateQueries({ queryKey: ['memory-stores'] })
+      if (vars.epoch !== sheetEpoch.current) return
+      if (r.error) { setError(r.error); return }
+      if (r.memory_store) setMemoryStore(r.memory_store)
+    },
+    onError: (e: Error, vars) => {
+      if (vars.epoch === sheetEpoch.current) setError(e.message)
+    },
+  })
   /** Promotion is its own write, fired straight from the roster bar — it is not
    *  part of saving a crew's bindings, so it must not wait for a Save. */
   const defaultMut = useMutation({
@@ -1006,7 +1028,7 @@ export default function KiroCrewAgentsPage({ embedded }: { embedded?: boolean } 
     // 'kirocrew' default: that default is what silently turns a new crew into an
     // alias for the DEFAULT agent (#1684).
     if (!kiroAgent) { setSheetHint(i18nT('pages.kiroCrewAgentsPage.agent_template_is_required')); return }
-    createMut.mutate({ name: n, kiro_agent: kiroAgent, workspace, memory_store: memoryStore, triggers, session_color: sessionColor, epoch: sheetEpoch.current })
+    createMut.mutate({ name: n, kiro_agent: kiroAgent, workspace, memory_store: 'default', triggers, session_color: sessionColor, epoch: sheetEpoch.current })
   }
 
   const saveEdit = async () => {
@@ -1187,7 +1209,7 @@ export default function KiroCrewAgentsPage({ embedded }: { embedded?: boolean } 
   const creating = sheet?.mode === 'create'
   const [avatarUploading, setAvatarUploading] = useState(false)
   const sheetBusy =
-    createMut.isPending || updateMut.isPending || deleteMut.isPending || avatarUploading
+    createMut.isPending || updateMut.isPending || deleteMut.isPending || provisionMut.isPending || avatarUploading
 
   /**
    * The subset of `sheetBusy` that has already COMMITTED something — a write
@@ -1200,7 +1222,7 @@ export default function KiroCrewAgentsPage({ embedded }: { embedded?: boolean } 
    * `sheetBusy` for that reason: skipping the discard question during staging
    * would let a dismissal drop the whole save silently.
    */
-  const committing = updateMut.isPending || deleteMut.isPending
+  const committing = updateMut.isPending || deleteMut.isPending || provisionMut.isPending
 
   /** Which rail pane the editor body is showing. Reset whenever the editor is
    *  pointed somewhere else, so a crew never opens on the pane the previous one
@@ -1482,13 +1504,14 @@ export default function KiroCrewAgentsPage({ embedded }: { embedded?: boolean } 
           askAgent={!sheet}
           testId="crews-editor-options-load-error"
         />
-        {/* Says out loud what the bindings below cannot: a crew's workspace and
-            memory store are shown and editable, but the isolation they imply is
-            only partly built — every crew still reads one shared semantic
-            memory. Page-level rather than per-card: the claim is about the whole
-            surface, and repeating it on every card would put two "?" glyphs on
-            each of them. The editor panel and the list header carry the same
-            copy as a tooltip, because neither can see this line. */}
+        {/* Says out loud what the bindings below cannot: an agent remembers
+            separately only once it is bound to a NAMED store, so a page of
+            visible bindings otherwise reads as if every agent already had a
+            memory of its own — and it names the fallback the rest are left
+            sharing. Page-level rather than per-card: the claim is about the
+            whole surface, and repeating it on every card would put two "?"
+            glyphs on each of them. The editor panel and the list header carry
+            their own binding tooltips, because neither can see this line. */}
         <div className="mb-3.5 flex items-start gap-2 rounded-lg border border-accent-subtle bg-bg-accent px-3 py-2.5">
           <Sparkles className="lucide-inline mt-0.5 shrink-0 text-accent" aria-hidden="true" />
           <span className="text-[12.5px] leading-relaxed text-muted">
@@ -1599,8 +1622,8 @@ export default function KiroCrewAgentsPage({ embedded }: { embedded?: boolean } 
                   {/* `aria-label` keeps the column's accessible name to the
                       label itself. Without it the InfoTip's own name is
                       concatenated into the header, and a screen reader
-                      announces every cell in the column as "Workspace,
-                      Preview. Isolated memory per crew is…". */}
+                      announces every cell in the column as the label followed
+                      by the whole paragraph of tip prose. */}
                   <TableHead aria-label={i18nT('pages.kiroCrewAgentsPage.workspace_2')}>
                     <span className="inline-flex items-center gap-1.5">
                       {i18nT('pages.kiroCrewAgentsPage.workspace_2')}
@@ -1758,7 +1781,6 @@ export default function KiroCrewAgentsPage({ embedded }: { embedded?: boolean } 
                     kiroAgentOptions={kiroAgentOptions} kiroAgent={kiroAgent} setKiroAgent={setKiroAgent}
                     workspaceOptions={workspaceOptions} workspace={workspace} setWorkspace={setWorkspace}
                     onNewWorkspace={() => setWsModalOpen(true)}
-                    memoryStoreOptions={memoryStoreOptions} memoryStore={memoryStore} setMemoryStore={setMemoryStore}
                   />
                 </section>
               </div>
@@ -1909,7 +1931,15 @@ export default function KiroCrewAgentsPage({ embedded }: { embedded?: boolean } 
                         onChange={setWorkspace}
                         onNewWorkspace={() => setWsModalOpen(true)}
                       />
-                      <MemoryStoreField options={memoryStoreOptions} value={memoryStore} onChange={setMemoryStore} />
+                      <MemoryStoreField
+                        value={memoryStore}
+                        member={editing}
+                        privateReady={kirocrewCfg?.memory_stores?.[memoryStore]?.owner_member === editing && kirocrewCfg?.memory_stores?.[memoryStore]?.memory_version === 2}
+                        onInitialize={() => provisionMut.mutate({ name: editing, epoch: sheetEpoch.current })}
+                        busy={sheetBusy || !kirocrewCfg}
+                        manageDisabled={dirtyPanes.size > 0 || schedDraft}
+                        onManage={() => navigate(`/settings/overview?view=memory&store=${encodeURIComponent(editing === 'default' ? 'default' : memoryStore)}`)}
+                      />
                       {collidingCrews.length > 0 && (
                         <div className="rounded-md border border-warn-subtle bg-warn-subtle px-3 py-2.5 text-[11.5px] leading-relaxed text-muted">
                           {i18nT('pages.kiroCrewAgentsPage.also_used_by_these_crews', { crews: collidingCrews.join(', ') })}
@@ -1919,7 +1949,7 @@ export default function KiroCrewAgentsPage({ embedded }: { embedded?: boolean } 
                   )}
 
                   {pane === 'schedules' && (
-                    <CrewWakeSection crew={editing} isDefaultCrew={editing === defaultAgent} onDraftChange={setSchedDraft} onSavingChange={setSchedSaving} onRequestCancel={requestCancelDraft} />
+                    <CrewWakeSection crew={editing} agentTemplate={kiroAgent} isDefaultCrew={editing === defaultAgent} onDraftChange={setSchedDraft} onSavingChange={setSchedSaving} onRequestCancel={requestCancelDraft} />
                   )}
 
                   {pane === 'webhook' && <CrewWebhookSection crew={editing} />}

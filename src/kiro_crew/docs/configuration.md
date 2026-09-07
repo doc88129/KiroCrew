@@ -411,6 +411,49 @@ them, so there is no enable switch here: only knobs for *which* model runs.
 | `memory.history_idle_hours` | Hours of inactivity before history consolidation | `3.0` |
 | `memory.history_max_days` | Days of history to retain before pruning | `365` |
 
+#### Named memory stores
+
+Each Crew Member receives its own empty private V2 memory when it is created.
+The generated store is recorded in `agents.<crew>.memory_store` and declared in
+`memory_stores` with its version and owner. Existing Global Memory V1 remains
+with the built-in default assistant; creating a member never copies or migrates it.
+
+| Key | Description | Default |
+|-----|-------------|---------|
+| `memory_stores` | Store declarations; member entries include `memory_version: 2` and `owner_member`. A missing declaration is an error | `{"default": {}}` |
+| `default_memory_store` | Retained for configuration compatibility; never repairs a missing or invalid member binding | `"default"` |
+| `agents.<crew>.memory_store` | The member's generated, immutable private store identity; only the built-in default assistant uses `default` | Allocated on member creation |
+
+The `default` store keeps the files it already has — `~/.kiro/crew/workspace/memory/`,
+`~/.kiro/crew/memory.db` and `~/.kiro/crew/memory_index.db`. Nothing moves when you
+add a named store. A named store gets `~/.kiro/crew/memory_stores/<name>/`,
+owner-only, holding that crew's markdown memory, its full-text index and its own
+vector database. `kirocrew snapshot` covers the `default` store; a named store's files
+are not in a snapshot yet.
+
+**Store names are strict, and a bad one is refused rather than guessed at.** A name
+is lowercase, 1–80 characters, made of letters, digits and inner hyphens
+(`^[a-z0-9](?:[a-z0-9-]{0,78}[a-z0-9])?$`), a single path segment, not a Windows
+device name (`con`, `nul`, `aux`, `prn`, `com1`–`com9`, `lpt1`–`lpt9`), and does not
+end in a dot or a space. A name that breaks any of those is reported when the config
+loads and no memory directory is created for it — guessing what was meant is how two
+crews would end up sharing one directory. Your entry stays in `config.json` exactly as
+you wrote it so you can fix the spelling; until you do, a member bound to it
+refuses execution with an explicit memory error.
+
+An undeclared name, mismatched owner, missing directory or unreadable database
+also refuses execution. There is no fallback to `default_memory_store` or Global
+Memory V1. Legacy members require explicit empty initialization in member
+settings, or `kirocrew agent update <name> --provision-memory`; their existing
+memory stays untouched. Recover a damaged existing private store from its own
+backup instead of rebinding it to another store.
+
+**Private member execution requires OS filesystem isolation.** File tools fence
+`memory_stores/`, and the process sandbox withholds private stores and Global V1
+memory from member subprocesses. Memory tools reach only the member's bound store
+through the gateway. An unsupported or unavailable sandbox refuses private
+execution; member management and the default assistant's V1 remain available.
+
 ### Skills
 
 | Key | Description | Default |
@@ -512,7 +555,10 @@ rules so they cannot be opted out of at all.
 | `~/.kiro/crew/notifications.jsonl` | Notification history |
 | `~/.kiro/crew/models/` | Embedding model, downloaded in the background at startup |
 | `~/.kiro/crew/history/` | Chat history (JSONL) |
-| `~/.kiro/crew/workspace/memory/` | Memory files |
+| `~/.kiro/crew/workspace/memory/` | Memory files (default store) |
+| `~/.kiro/crew/memory_index.db` | Full-text search index (default store) |
+| `~/.kiro/crew/memory.db` | Semantic, episodic and lesson memory (default store) |
+| `~/.kiro/crew/memory_stores/<name>/` | A named memory store: one crew's private memory, unreadable by the agent's file tools |
 | `~/.kiro/crew/session_map.json` | Session resume mapping |
 | `~/.kiro/crew/snapshots/` | Default output of `kirocrew snapshot` |
 | `~/.kiro/agents/kirocrew.json` | Installed agent config |
