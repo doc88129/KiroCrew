@@ -305,7 +305,7 @@ describe('MembersPage thread', () => {
       row({ name: 'fresh-talker', slug: 'fresh-talker', last_active_ts: 200 }),
     ])
     const list = await screen.findByRole('list')
-    const names = Array.from(list.querySelectorAll('li button .font-medium')).map(
+    const names = Array.from(list.querySelectorAll('li button .font-semibold')).map(
       (el) => el.textContent,
     )
     // Recent first; ts=0 rows trail in name order — mirroring an IM member list.
@@ -437,8 +437,9 @@ describe('MembersPage drawer and edit jump', () => {
     await screen.findByTestId('member-drawer')
     // DetailPanel's resize splitter — the affordance the hand-rolled aside
     // never had. Its presence pins that the drawer went through the shared
-    // component rather than a lookalike.
-    expect(screen.getByRole('separator', { name: /resize/i })).toBeInTheDocument()
+    // component rather than a lookalike. Named precisely: the roster's own
+    // grip ("Resize member list") is a second separator on the page.
+    expect(screen.getByRole('separator', { name: /resize panel/i })).toBeInTheDocument()
     // DetailPanel's own header close button (replaces the old mobile-only X).
     fireEvent.click(screen.getByRole('button', { name: /close panel/i }))
     await waitFor(() => expect(screen.queryByTestId('member-drawer')).toBeNull())
