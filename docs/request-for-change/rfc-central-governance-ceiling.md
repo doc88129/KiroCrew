@@ -6,7 +6,7 @@ created: 2026-09-08
 last-audited: 2026-09-08
 audited-at: 8a9c269b4
 doc-pr: 9373
-implementation-prs: []
+implementation-prs: [7362]
 tracking-issues: [9106]
 supersedes: []
 superseded-by: []
@@ -28,6 +28,20 @@ time-boxed local override (`break_glass`, RFC step 6) and a fully generic
 platform managed tier. This RFC is the design-of-record for both, so the work is
 not lost and any re-attempt starts from the review history rather than from
 scratch. It is a record of a decision, not a description of code on main.
+
+> **Landed by #7362 (status delta, added on that branch).** The "does not exist"
+> claims in this document are measured at `8a9c269b4` and are accurate for that
+> commit. PR #7362 itself ships part of the platform managed tier described under
+> *Design*: `_read_managed_policy` / `_managed_policy_path` with a Linux file rung
+> at `/etc/kirocrew-managed/security_policy.json` and a macOS **Computer-Level**
+> profile rung at `/Library/Managed Preferences/dev.kirocrew.plist`, both refused
+> unless root-owned and not group/world-writable. Still **not** shipped, and still
+> design-of-record here: `break_glass`; the Windows `HKLM\SOFTWARE\Policies` rung
+> (Windows stays advisory); reading a user-level profile as a lower rung; and the
+> parent-authenticated carrier that lets a *sandboxed* child adopt the managed
+> document (#9140) — inside the Linux namespace sandbox uid 0 is unmapped, so the
+> child cannot verify the file's owner and skips the managed rung with one audit
+> row until that carrier exists.
 
 ---
 

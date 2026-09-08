@@ -175,9 +175,9 @@ once loaded.
 
 ## Level-1 governance ceiling and distribution
 
-`PlatformContext.governance` is the optional Level-1 `GovernanceCeiling` that enforcement chokepoints read through `current_context()`. `governance.load_security_policy` selects the first available source: an explicit local policy, a centrally distributed policy, a companion-bundled policy, then the data-home policy; no source leaves editable standalone defaults. The local source remains first so an operator can roll back a bad fleet-wide publication without waiting for the central control plane.
+`PlatformContext.governance` is the optional Level-1 `GovernanceCeiling` that enforcement chokepoints read through `current_context()`. `governance.load_security_policy` composes a **tier ladder**, highest first: the MDM-managed root-owned file (macOS and Linux only), the centrally distributed document, then exactly one of the local sources (an explicit `KIROCREW_SECURITY_POLICY` path, a companion-bundled policy, or the data-home policy). The top two are authorities; every tier below one may only **tighten** it, through the same per-scope AND the profile layer uses. There is no local rollback lever above the fleet: recovery from a bad publication is re-publishing a good document at the source (`governance.md` → "Loading + precedence"). No source leaves editable standalone defaults.
 
-`policy_distribution.resolve_distribution` accepts the central source from fleet environment settings or the `distribution` declaration of an already-selected lower-tier policy, with environment settings taking precedence individually. A declared distribution source cannot carry credentials; request headers remain host-local and `cache_only()` prevents child processes from receiving the means to contact the fleet control plane.
+`policy_distribution.resolve_distribution` takes the central source from the `distribution` declaration of the highest tier that made one, or from fleet environment settings when none did; under a managed declaration the environment variables are ignored and audited once. A declared distribution source cannot carry credentials; request headers remain host-local and `cache_only()` prevents child processes from receiving the means to contact the fleet control plane.
 
 `governance._parse_controls` rejects every unknown governed key, including an unrecognised `sandbox` child. Only documented non-governed sandbox flags are accepted in the reserved internal scope. This fails closed instead of recording a misspelled sandbox floor as a valid but unenforced policy control.
 
@@ -292,7 +292,10 @@ Policy shape (`admission_policy.json`):
 **This policy is also the trust root for the security ceiling.**
 `require_policy_signature` (default `false`) additionally demands a *verified*
 `identity.signature` on `security_policy.json`, keyed by that document's
-`identity.issuer` in the same `trust_keys` map — one key store, not two. It is a
+`identity.issuer` in the same `trust_keys` map, or in `trust_public_keys` for an
+Ed25519 issuer (a public key never falls back to HMAC) — one key store, not two.
+Under a managed `distribution` declaration a verified signature is mandated on the
+fetched document regardless of this flag. It is a
 **separate** flag from `require_signature` on purpose: a fleet that signs its
 plugins has not thereby promised to sign its governance ceiling, and conflating
 them would break managed fleets on upgrade. The flag lives here rather than inside

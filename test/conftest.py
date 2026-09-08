@@ -10,6 +10,7 @@ import shutil
 import socket
 import struct
 import sys
+import tempfile
 import warnings
 
 import pytest
@@ -254,6 +255,32 @@ def _windows_restrict_to_owner_stub(request, monkeypatch):
         return
     monkeypatch.setattr(platform_compat, "restrict_to_owner", lambda p: None)
     monkeypatch.setattr(platform_compat, "restrict_dir_to_owner", lambda p: None)
+    yield
+
+
+@pytest.fixture(autouse=True)
+def _pin_managed_policy_off_the_host(request, monkeypatch):
+    """Point the MDM-managed policy tier at a path that does not exist.
+
+    The managed rung reads an ABSOLUTE host path (``/etc/kirocrew-managed`` on Linux,
+    ``/Library/Managed Preferences`` on macOS) that the ``KIROCREW_HOME`` pin cannot
+    redirect. On a provisioned developer box every test that boots a platform context
+    would otherwise compose under the real fleet ceiling and assert against it. The
+    tier's own module manages the seam itself and is exempted so its real-fstat tests
+    stay real; everywhere else an absent file is the honest standalone shape.
+
+    Deliberately not ``tmp_path``: requesting it would add a directory teardown to
+    every test in the suite, and tests that fake ``os.lstat`` for their own reasons
+    would then fail at teardown rather than in their own assertions. A path that is
+    never created needs no teardown.
+    """
+    if request.module.__name__ == "test_governance_managed_tier":
+        yield
+        return
+    from kiro_crew.platform import governance
+
+    absent = pathlib.Path(tempfile.gettempdir()) / "kirocrew-no-managed-tier" / "absent.json"
+    monkeypatch.setattr(governance, "_managed_policy_path", lambda: absent)
     yield
 
 

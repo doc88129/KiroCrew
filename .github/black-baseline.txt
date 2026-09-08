@@ -313,7 +313,6 @@ src/kiro_crew/notifications/bus.py
 src/kiro_crew/notifications/resource_pressure.py
 src/kiro_crew/notifications/settings.py
 src/kiro_crew/perf_sampler.py
-src/kiro_crew/platform/admission.py
 src/kiro_crew/platform/capability_bound.py
 src/kiro_crew/platform/update_layout.py
 src/kiro_crew/pod/config.py
