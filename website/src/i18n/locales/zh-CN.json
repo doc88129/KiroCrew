@@ -908,6 +908,7 @@
       "manifest": {
         "use_case_1": "按风险审查一个或多个 GitHub 拉取请求，查看重点发现，并只暂存值得发布的评论。",
         "configuration_1": "在网关主机上安装并认证 gh CLI，添加仓库，然后在设置中选择审查模型、推理强度和并发数。",
+        "configuration_2": "仅限 Windows：Kiro Crew 没有提供原生的 Windows 沙箱后端，因此 kiro-cli 自身沙箱不接受的评审会被拒绝，而不是未经审计就运行。要显式允许，请在 ~/.kiro/crew/config.json 中设置 agent.sandbox_allow_unsandboxed_exec=true。",
         "description": "深度审查 GitHub 拉取请求，告诉你哪些改动真正值得关注。每个改动过的文件都在各自独立的代理会话里审查，按影响范围加权，最后按优先级汇总成一份 Focus Report。发现会暂存为 GitHub 草稿审查，在你提交之前不会公开；审查者还会从已上线的修复和过往审查评论里，不断学习仓库真正的标准。",
         "display_name": "Code Review Sage",
         "highlight_1": "Focus Report 按影响范围给改动排序，风险高的文件先读",
@@ -915,6 +916,7 @@
         "highlight_3": "评审在应用内查看——除非你主动要求，否则不会向你的拉取请求发布任何内容",
         "highlight_4": "按仓库分别学习已上线的修复、审查评论和设计讨论",
         "highlight_5": "审查 GitHub 拉取请求；需要网关主机上有已认证的 `gh` CLI",
+        "highlight_6": "可在 macOS、Linux 和 Windows 上运行 — 但在 Windows 上，评审会话只在 kiro-cli 自身沙箱接管 spawn 时才会启动，因为 Kiro Crew 没有原生的 Windows 沙箱后端；否则会拒绝启动，直到操作者设置 agent.sandbox_allow_unsandboxed_exec。添加仓库、阅读过往报告和发布已暂存的草稿不受影响",
         "page_label": "Code Review Sage"
       },
       "views": {
@@ -4345,6 +4347,7 @@
         "highlight_3": "运行无人值守地执行，进度逐步显示在这次运行自己的页面上",
         "highlight_4": "随时暂停、恢复、重试或停止一次运行",
         "highlight_5": "保留历次运行及其结果的记录",
+        "highlight_6": "Windows：编写、规划、运行页面和历史记录一切照常；执行一次运行会启动一个代理进程，由于 Windows 没有原生操作系统沙箱，无法委派的后端会安全失败，直到操作者允许无沙箱执行",
         "page_label": "Task Runner"
       }
     },

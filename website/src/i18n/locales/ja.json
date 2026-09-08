@@ -908,6 +908,7 @@
       "manifest": {
         "use_case_1": "1 件または複数の GitHub プルリクエストをリスク順にレビューし、重点的な指摘を確認して、公開する価値のあるコメントだけをステージします。",
         "configuration_1": "ゲートウェイホストに gh CLI をインストールして認証し、リポジトリを追加してから、設定でレビューモデル、推論強度、同時実行数を選択します。",
+        "configuration_2": "Windows のみ: Kiro Crew は Windows 用のネイティブ sandbox バックエンドを提供していないため、kiro-cli 自身の sandbox が受け付けないレビューは、監査なしで実行されるのではなく拒否されます。明示的に許可するには ~/.kiro/crew/config.json で agent.sandbox_allow_unsandboxed_exec=true を設定してください。",
         "description": "GitHub pull requestsの詳細確認を行い、実際に注目する価値のある変更を示します。変更されたファイルはすべて独自の分離されたエージェントセッションで確認され、持っているブラスト半径の量で加重され、優先度付きフォーカスレポートにロールアップされます。検出結果は、GitHub で送信するまで未公開のままのドラフト GitHub レビューとしてステージングされ、確認者は出荷されたフィックスと過去のレビューコメントからリポジトリの真の標準を学び続けます。",
         "display_name": "Code Review Sage",
         "highlight_1": "フォーカスレポートはブラスト半径によって変更をランク付けするため、リスクの高いファイルが最初に読み取られます",
@@ -915,6 +916,7 @@
         "highlight_3": "保留中(ドラフト)の GitHub レビューとして投稿 — あなたが送信する1つです",
         "highlight_4": "配布されたフィックス、レビューコメント、設計ディスカッションからリポジトリごとに学習します",
         "highlight_5": "GitHub pull requestsを確認します; ゲートウェイホストで認証された`gh` CLIが必要です",
+        "highlight_6": "macOS、Linux、Windows で動作します — ただし Windows では、Kiro Crew に Windows 用のネイティブ sandbox バックエンドがないため、kiro-cli 自身の sandbox が spawn を受け付けたときだけレビューセッションが起動します。それ以外では、オペレーターが agent.sandbox_allow_unsandboxed_exec を設定するまで起動を拒否します。リポジトリの追加、過去のレポートの閲覧、保留中の下書きの公開には影響しません",
         "page_label": "Code Review Sage"
       },
       "views": {
@@ -4396,6 +4398,7 @@
         "highlight_3": "実行は無人で実行され、実行の独自のページにステップバイステップの進行状況が表示されます",
         "highlight_4": "いつでも実行を一時停止、再開、再試行、または停止できます",
         "highlight_5": "過去の実行とその結果の履歴を保持します",
+        "highlight_6": "Windows: 作成、計画、実行ページ、履歴はいつも通り動作します。実行するとエージェントプロセスが起動しますが、Windows にはネイティブの OS sandbox がないため、委任できないバックエンドはオペレーターが sandbox なしの実行を許可するまで失敗で止まります",
         "page_label": "Task Runner"
       }
     },

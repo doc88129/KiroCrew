@@ -813,9 +813,11 @@
         "highlight_3": "Reviews are read in the app — nothing is posted to your pull request unless you ask",
         "highlight_4": "Learns per-repository from shipped fixes, review comments, and design discussions",
         "highlight_5": "Reviews GitHub pull requests; needs an authenticated `gh` CLI on the gateway host",
+        "highlight_6": "Runs on macOS, Linux and Windows — but on Windows the reviewer session starts only when kiro-cli's own sandbox takes the spawn, because Kiro Crew has no native Windows sandbox backend; otherwise it refuses to start until an operator sets agent.sandbox_allow_unsandboxed_exec. Adding repos, reading past reports and publishing a staged draft are unaffected",
         "page_label": "Code Review Sage",
         "use_case_1": "Review one or many GitHub pull requests by risk, inspect focused findings, and stage only the comments worth publishing.",
-        "configuration_1": "Install and authenticate the gh CLI on the gateway host, add a repository, then choose the review model, reasoning effort, and concurrency in Settings."
+        "configuration_1": "Install and authenticate the gh CLI on the gateway host, add a repository, then choose the review model, reasoning effort, and concurrency in Settings.",
+        "configuration_2": "Windows only: Kiro Crew ships no native Windows sandbox backend, so a review that kiro-cli's own sandbox does not take is refused rather than run unaudited. Set agent.sandbox_allow_unsandboxed_exec=true in ~/.kiro/crew/config.json to allow it explicitly."
       },
       "views": {
         "learningView": {
@@ -1040,14 +1042,14 @@
         "truncated": "· truncated"
       },
       "manifest": {
-        "description": "Browse and read files on the machine running Kiro Crew without leaving the dashboard. Keep several files open in tabs, walk the directory tree with each file's git status shown beside it, search a whole folder for a string, and read markdown rendered rather than raw. It is read-only by design: it opens and searches files but never edits, moves, or deletes them, and it can only reach your home directory plus /tmp and /opt.",
+        "description": "Browse and read files on the machine running Kiro Crew without leaving the dashboard. Keep several files open in tabs, walk the directory tree with each file's git status shown beside it, search a whole folder for a string, and read markdown rendered rather than raw. It is read-only by design: it opens and searches files but never edits, moves, or deletes them, and it can only reach your home directory and the system temp directory, plus /home and /opt on macOS and Linux.",
         "display_name": "Files",
         "highlight_1": "Read-only: opens and searches files, and never writes, moves, or deletes them",
         "highlight_2": "Multiple files open at once in tabs, with syntax highlighting",
         "highlight_3": "Markdown files render as formatted text instead of raw source",
         "highlight_4": "Directory tree shows each file's git status inline",
         "highlight_5": "Search across a directory with line-level matches and surrounding preview",
-        "highlight_6": "Reachable paths are limited to your home directory, /tmp, and /opt — symlinks out are refused",
+        "highlight_6": "Reachable paths are limited to your home directory and the system temp directory (/tmp on macOS and Linux, %TEMP% on Windows), plus /home and /opt on macOS and Linux — symlinks out are refused",
         "page_label": "Files",
         "use_case_1": "Read, search, preview, download, or discuss files on the gateway host without granting the page write access.",
         "configuration_1": "Enable the app and open an allowed directory from the path bar; no account is required, and git or ripgrep only add optional status and search enhancements."
@@ -1434,10 +1436,10 @@
         "highlight_6": "Every write needs triage or push access on the repo; a read-only connection stays suggest-only",
         "highlight_7": "Surfaces repositories you have recently contributed to, so connecting one is a click",
         "highlight_8": "Caches issues, labels, and members locally, refreshed on demand",
-        "highlight_9": "Works with GitHub, GitLab, and Azure DevOps; needs an authenticated CLI for the provider you connect (`gh`, `glab`, or `az`) on the gateway host — no single provider's CLI is required to install",
+        "highlight_9": "Works with GitHub, GitLab, and Azure DevOps; needs an authenticated CLI for the provider you connect (`gh`, `glab`, or `az`) on the gateway host — no single provider's CLI is required to install. `gh` and `glab` are supported natively on Windows as well as macOS and Linux; the Azure DevOps provider needs a POSIX gateway host (macOS, Linux, or WSL)",
         "page_label": "Issue Radar",
         "use_case_1": "Triage issues and pull requests across connected providers while retaining summaries, suggested labels, and investigation history.",
-        "configuration_1": "Connect a repository and authenticate its provider CLI on the gateway host: gh for GitHub, glab for GitLab, or az with the Azure DevOps extension on macOS, Linux, or WSL."
+        "configuration_1": "Connect a repository and authenticate its provider CLI on the gateway host: gh for GitHub or glab for GitLab, both supported natively on Windows, macOS and Linux; or az with the Azure DevOps extension, which needs a POSIX gateway host — on Windows, run the gateway under WSL to use Azure DevOps."
       },
       "views": {
         "comingSoon": {
@@ -3364,6 +3366,7 @@
         "highlight_3": "Runs execute unattended, with step-by-step progress on the run's own page",
         "highlight_4": "Pause, resume, retry, or stop a run at any point",
         "highlight_5": "Keeps a history of past runs and their outcomes",
+        "highlight_6": "Windows: composing, planning, run pages and history work as usual; executing a run spawns an agent process, and since Windows has no native OS sandbox, a backend that cannot be delegated to fails closed until an operator allows unsandboxed exec",
         "page_label": "Task Runner",
         "use_case_1": "Plan and run a dependency-aware multi-agent job from plain language, an existing specification, or deterministic YAML.",
         "configuration_1": "Open Task Runner, choose Compose, From Spec, or From YAML, select an agent and optional absolute workspace, then review with Plan or start immediately with Run."

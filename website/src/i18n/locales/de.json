@@ -942,9 +942,11 @@
         "highlight_3": "Reviews werden in der App gelesen – es wird nichts an deinen Pull Request gepostet, sofern du es nicht anforderst",
         "highlight_4": "Lernt pro Repository aus ausgelieferten Korrekturen, Review-Kommentaren und Design-Diskussionen",
         "highlight_5": "Überprüft Pull Requests auf GitHub; benötigt eine authentifizierte `gh` CLI auf dem Gateway-Host",
+        "highlight_6": "Läuft unter macOS, Linux und Windows — aber unter Windows startet die Reviewer-Sitzung nur, wenn kiro-clis eigene Sandbox den Spawn übernimmt, weil Kiro Crew kein natives Windows-Sandbox-Backend hat; andernfalls verweigert sie den Start, bis ein Betreiber agent.sandbox_allow_unsandboxed_exec setzt. Repos hinzufügen, frühere Berichte lesen und einen gespeicherten Entwurf veröffentlichen sind davon nicht betroffen",
         "page_label": "Code Review Sage",
         "use_case_1": "Prüfe einen oder mehrere GitHub-Pull-Requests nach Risiko, untersuche gezielte Ergebnisse und bereite nur veröffentlichungswürdige Kommentare vor.",
-        "configuration_1": "Installiere und authentifiziere die gh-CLI auf dem Gateway-Host, füge ein Repository hinzu und wähle dann in den Einstellungen Review-Modell, Reasoning-Aufwand und Parallelität."
+        "configuration_1": "Installiere und authentifiziere die gh-CLI auf dem Gateway-Host, füge ein Repository hinzu und wähle dann in den Einstellungen Review-Modell, Reasoning-Aufwand und Parallelität.",
+        "configuration_2": "Nur Windows: Kiro Crew liefert kein natives Windows-Sandbox-Backend, daher wird eine Überprüfung, die kiro-clis eigene Sandbox nicht übernimmt, verweigert statt unbeaufsichtigt ausgeführt zu werden. Setze agent.sandbox_allow_unsandboxed_exec=true in ~/.kiro/crew/config.json, um es explizit zu erlauben."
       },
       "views": {
         "learningView": {
@@ -4470,6 +4472,7 @@
         "highlight_3": "Ausführungen laufen unbeaufsichtigt, mit Schritt-für-Schritt-Fortschritt auf der eigenen Seite der Ausführung",
         "highlight_4": "Eine Ausführung jederzeit pausieren, fortsetzen, wiederholen oder stoppen",
         "highlight_5": "Behält einen Verlauf früherer Ausführungen und ihrer Ergebnisse",
+        "highlight_6": "Windows: Verfassen, Planen, Ausführungsseiten und Verlauf funktionieren wie gewohnt; das Ausführen eines Laufs startet einen Agentenprozess, und da Windows keine native OS-Sandbox hat, schlägt ein Backend, das nicht delegiert werden kann, fehl, bis ein Betreiber unsandboxed exec erlaubt",
         "page_label": "Task Runner",
         "use_case_1": "Plane und starte einen abhängigen Multi-Agenten-Auftrag aus normaler Sprache, einer vorhandenen Spezifikation oder deterministischem YAML.",
         "configuration_1": "Öffne Task Runner, wähle Compose, From Spec oder From YAML, einen Agenten und optional einen absoluten Arbeitsbereich und prüfe dann mit Plan oder starte sofort mit Run."

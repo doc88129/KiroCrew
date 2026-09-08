@@ -149,9 +149,13 @@ export const APP_MANIFEST_KEY: Record<string, ManifestKeys> = {
       'apps.codeReviewSage.manifest.highlight_3',
       'apps.codeReviewSage.manifest.highlight_4',
       'apps.codeReviewSage.manifest.highlight_5',
+      'apps.codeReviewSage.manifest.highlight_6',
     ],
     useCases: ['apps.codeReviewSage.manifest.use_case_1'],
-    configuration: ['apps.codeReviewSage.manifest.configuration_1'],
+    configuration: [
+      'apps.codeReviewSage.manifest.configuration_1',
+      'apps.codeReviewSage.manifest.configuration_2',
+    ],
   },
   // Overlay-only: no `pageLabel`, because this app contributes no page.
   'command-bar': {
@@ -369,6 +373,7 @@ export const APP_MANIFEST_KEY: Record<string, ManifestKeys> = {
       'apps.projects.manifest.highlight_3',
       'apps.projects.manifest.highlight_4',
       'apps.projects.manifest.highlight_5',
+      'apps.projects.manifest.highlight_6',
     ],
     useCases: ['apps.projects.manifest.use_case_1'],
     configuration: ['apps.projects.manifest.configuration_1'],
