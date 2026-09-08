@@ -94,6 +94,7 @@ Background: P3's ChatEmbed adoption (#8631) mounts the real `ChatInput`, whose s
 | P2 | `App.tsx`, `useSceneInteraction`, mochi `panelBridge`, design-tweak, design-critique, issue-radar / auto-improvement `agentSession` | — | not started |
 | P3 | Store-free `ChatInput` seam | [#8651](https://github.com/kirodotdev/KiroCrew/issues/8651) | design draft pending |
 | P5-a | `ChatPage.renderMessage` → registry | — | next |
+| P5-b | Pinned-prompt banner sinks into `ChatPane` (Crew Members DM, split panes): `usePinnedPrompt` hook extracted from the transcript controller, `ChatMessageList` `onDisplayItems` / `hiddenRow` row-indexing seam | [#9527](https://github.com/kirodotdev/KiroCrew/issues/9527) | in review |
 | P4 | Error hand-off → side panel; `askAgent` default-on | — | after P5-a |
 
 Follow-ups recorded during review, not yet scheduled: route SideChat's four remaining panel-local statuses (queue cancel/edit failure, question-too-long, demotion notice) through the per-slot `sideSendStatus` store channel (#8655 FP); design-critique's `SyntaxError` swallow (its own P2 slot).
