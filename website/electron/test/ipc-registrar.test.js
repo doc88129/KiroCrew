@@ -36,6 +36,7 @@ const SHELL_HANDLES = [
   "global-hotkey:get",
   "local-gateway:get",
   "local-gateway:set",
+  "pane:clear-http-cache",
   "wsl:detect",
   "zoom:get",
   "zoom:set",
@@ -449,13 +450,13 @@ test("registerShell owns the exact shell channel set and is idempotent", () => {
 
   assert.deepEqual([...h.handlers.keys()].sort(), SHELL_HANDLES);
   assert.deepEqual([...h.listeners.keys()].sort(), SHELL_LISTENERS);
-  assert.equal(h.handlers.size + h.listeners.size, 33);
+  assert.equal(h.handlers.size + h.listeners.size, 34);
 
   // boot-complete is a further non-update host channel, but it is deliberately
   // gateway-owned and scoped to a single connecting WebContents. Registering it
   // globally here would weaken its sender check and leak listeners.
   assert.match(GATEWAY_SOURCE, /ipcMain\.on\("boot-complete", onComplete\)/);
-  assert.equal(h.handlers.size + h.listeners.size + 1, 34);
+  assert.equal(h.handlers.size + h.listeners.size + 1, 35);
   assert.equal(h.handlers.has("boot-complete"), false);
   assert.equal(h.listeners.has("boot-complete"), false);
 
@@ -1134,4 +1135,32 @@ test("updater initialization is fail-open and still installs all IPC", async () 
   assert.deepEqual(h.handlers.get("update:download")(), { ok: true });
   assert.deepEqual(await h.handlers.get("update:install")(), { ok: true });
   assert.equal(h.gatewayCalls.length, 0, "fail-open registration must not boot or stop gateway");
+});
+
+test("pane:clear-http-cache purges only a loopback pane origin's HTTP cache", async () => {
+  const h = harness();
+  h.registrar.registerShell();
+  const handler = h.handlers.get("pane:clear-http-cache");
+  const purges = [];
+  const event = {
+    sender: { session: { clearData: async (opts) => { purges.push(opts); } } },
+  };
+
+  assert.equal(await handler(event, "http://localhost:7778"), true);
+  assert.deepEqual(purges, [{ origins: ["http://localhost:7778"], dataTypes: ["cache"] }]);
+  assert.ok(h.logs.some((l) => l.includes("clear-http-cache origin=http://localhost:7778 cleared")));
+
+  // The shell's own origin, a non-loopback host, a URL with a path, and junk
+  // are all refused without touching the session.
+  for (const bad of ["http://localhost:5476", "https://example.com", "http://localhost:7778/x", "", 42]) {
+    assert.equal(await handler(event, bad), false, `refused ${String(bad)}`);
+  }
+  assert.equal(purges.length, 1);
+
+  // A session that cannot purge, or one whose purge throws, answers false
+  // rather than rejecting into the renderer.
+  assert.equal(await handler({ sender: {} }, "http://localhost:7778"), false);
+  const throwing = { sender: { session: { clearData: async () => { throw new Error("boom"); } } } };
+  assert.equal(await handler(throwing, "http://localhost:7778"), false);
+  assert.ok(h.logs.some((l) => l.includes("clear-http-cache origin=http://localhost:7778 failed: boom")));
 });
