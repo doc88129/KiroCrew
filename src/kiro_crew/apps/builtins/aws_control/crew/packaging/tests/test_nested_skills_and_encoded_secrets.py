@@ -201,6 +201,10 @@ def test_the_builder_refuses_where_the_nofollow_primitive_is_unavailable(
     entry-point guard refuses rather than ship that surface; the builder is POSIX-only until a
     real no-follow primitive is available.
     """
+
+
+def test_skills_still_ship_where_dir_fd_is_unavailable(tmp_path: pathlib.Path) -> None:
+    """Skill files do not go through the anchored opener, so they are unaffected."""
     mod = _no_dir_fd(load_build)
     home = make_crew(tmp_path / "home", skills={"faq": {"SKILL.md": "# FAQ\n"}})
     work = tmp_path / "work"

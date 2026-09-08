@@ -174,8 +174,10 @@ def test_MUTATION_translating_reader_aborts_the_build(tmp_path: pathlib.Path) ->
     """
     mod = load_build(
         mutate=(
-            'with os.fdopen(fd, "r", encoding="utf-8", newline="") as fh:\n            return fh.read()',
-            'return os.fdopen(fd, "r", encoding="utf-8").read()',
+            # The read is BINARY and the decode is separate, so newline translation has
+            # nowhere to happen. The only way to reintroduce it is at the decode.
+            'return data.decode("utf-8")',
+            'return data.decode("utf-8").replace("\\r\\n", "\\n")',
         )
     )
     home = make_crew(tmp_path / "home", skills={"faq": {"SKILL.md": "placeholder"}})
