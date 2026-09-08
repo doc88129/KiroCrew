@@ -26,6 +26,7 @@ from kiro_crew import members as members_mod
 from kiro_crew import model_registry
 from kiro_crew.acp.client import AcpModelUnavailable
 from kiro_crew.agent_discovery import cached_project_agent_names, warm_project_agent_names
+from kiro_crew.agent_sdk.capabilities import MODEL_NAMESPACE_ACP, capabilities_of
 from kiro_crew.agent_sdk.provider_identity import is_claude_code
 from kiro_crew.config.loader import (
     AUTOCOMPACT_PCT_MAX,
@@ -43,6 +44,7 @@ from kiro_crew.dashboard.chat_auto_tag import maybe_auto_tag
 from kiro_crew.dashboard.chat_delivery import (
     STEER_REQUEUED,
     STEER_STEERED,
+    attachment_meta,
     normalize_send_id,
     queue_for_next_turn,
     steer_into_running_turn,
@@ -640,12 +642,16 @@ async def api_chat(request: web.Request) -> web.StreamResponse:
         # queued send's row ends up carrying the same id a dispatched send's row
         # gets from `slot.append(..., meta=user_meta)` below -- the only way a
         # sender can prove ITS message landed without matching by text.
+        # The attachment lists (`meta.files` / `meta.dirs`) ride the same way:
+        # the renderer resolves `[attached_file N]` markers against them, and a
+        # drained row without them truncates a spaced path at its first space.
         qid = queue_for_next_turn(
             state,
             slot,
             message,
             directive_user_origin=not bool(request_app),
             send_id=normalize_send_id(user_meta.get("sendId")) if user_meta else None,
+            attachments=attachment_meta(user_meta),
         )
         return web.json_response({"ok": True, "queued": True, "queue_id": qid})
 
@@ -698,11 +704,13 @@ async def api_chat(request: web.Request) -> web.StreamResponse:
         from kiro_crew.dashboard.session_control import containment_meta
 
         # Same entry-meta contract as the busy-slot branch: the client's `sendId`
-        # rides on the queue entry so the drained row carries it.
+        # and attachment lists ride on the queue entry so the drained row
+        # carries them.
         _hold_meta: dict = containment_meta(state, slot)
         _hold_sid = normalize_send_id(user_meta.get("sendId")) if user_meta else None
         if _hold_sid:
             _hold_meta["sendId"] = _hold_sid
+        _hold_meta.update(attachment_meta(user_meta))
         qid = slot.queue_append(
             message,
             meta=_hold_meta,
@@ -4267,6 +4275,12 @@ async def api_chat_slot_queue_edit(request: web.Request) -> web.Response:
         directive_user_origin=not bool(request.get("app", "")),
     ):
         return web.json_response({"error": "queue item not found"}, status=404)
+    # The stored text is what the edit normalized to (attachment markers are
+    # renumbered when the edit dropped one), so the row and the broadcast echo
+    # the ENTRY, not the request body.
+    stored = next((i.get("content") for i in slot._queue if i["id"] == queue_id), None)
+    if isinstance(stored, str):
+        content = stored
     _edit_queued_by_id(slot.messages, queue_id, content)
     slot.invalidate_source_links()
     _redacted = _redact_for_display(content)
@@ -6052,10 +6066,17 @@ def _wire_model_id(provider: AcpProvider, model_name: str) -> str:
 
     ``slot.model`` holds a canonical/wire value while ``session/set_model`` only
     accepts the backend's own ids — two namespaces. Mirrors the normalisation the
-    warm-pool post-claim switch does in ``SessionManager``: kiro wants the bare
-    dotted id via ``to_acp_id`` (which translates canonical keys and passes
-    kiro's own ids through unchanged), the claude backend wants the
-    ``global.anthropic.*`` id.
+    warm-pool post-claim switch does in ``SessionManager``: a backend on the
+    native ``acp`` namespace wants the bare dotted id via ``to_acp_id`` (which
+    translates canonical keys and passes kiro's own ids through unchanged), while
+    one on its own provider namespace wants that namespace's id (for
+    claude-agent-acp, ``global.anthropic.*``).
+
+    Which namespace is asked as a CAPABILITY, not read off the harness's name:
+    ``SessionCapabilities.model_id_namespace``. The same field also answers
+    whether "provider default" is expressible, because that is a property of the
+    namespace — the native one carries the real id ``auto`` and a provider
+    namespace has no id meaning "choose for me".
 
     Returns "" when the change cannot be expressed as a ``set_model`` on this
     backend, which tells the caller to fall back to a session reset.
@@ -6063,10 +6084,11 @@ def _wire_model_id(provider: AcpProvider, model_name: str) -> str:
     # The dashboard sends "" for Auto, but the literal "auto" also passes the
     # guard (stale clients / direct API calls), so both mean "provider default".
     is_default = model_name in ("", "auto")
-    if provider.is_claude_backend:
-        # The claude backend has no id meaning "let the server choose", so
-        # returning to default needs a reset.
-        return "" if is_default else model_registry.to_provider_id(model_name, "claude_code")
+    namespace = capabilities_of(provider).model_id_namespace
+    if namespace != MODEL_NAMESPACE_ACP:
+        # No id on this namespace means "let the server choose", so returning to
+        # default needs a reset.
+        return "" if is_default else model_registry.to_provider_id(model_name, namespace)
     if is_default:
         # kiro DOES express Auto as a real model id — but only switch to it when
         # this session's backend actually advertised it.
@@ -7376,55 +7398,135 @@ async def api_chat_slot_reload(request: web.Request) -> web.Response:
     slot = state._slots.get(name)
     if not slot:
         return web.json_response({"error": "not found", "code": "slot_not_found"}, status=404)
-    # The session the reload will tear down. ``effective_session_key``, never
-    # ``_history_key_for``: a channel- or cron-born slot runs its turns under
-    # its linked key, and the dashboard-prefixed spelling names a session that
-    # never existed -- the reset would "succeed" against nothing while the
-    # live process kept its stale config.
-    session_key = effective_session_key(slot)
-    # App isolation, same policy as the cancel routes: reload is a teardown,
-    # so an app token must own both the slot and the session the teardown
-    # lands on, and a denial is indistinguishable from a missing slot.
-    denied = _app_cancel_denied(request, slot, "chat.slot_reload", session_key)
-    if denied is not None:
-        return denied
-    provider = state.sessions.get_provider(session_key)
-    if provider is not None and provider.has_active_turn():
-        return web.json_response(
-            {"error": "a turn is in flight", "code": "turn_in_flight"}, status=409
-        )
-    # Children guard, shared with api_chat_slot_continue: RUNNING children die
-    # with the parent runtime, and _subagents_attached_response documents why
-    # queued children and in-flight deliveries count too.
-    denied_409 = _subagents_attached_response(state, slot, session_key, "reload")
-    if denied_409 is not None:
-        return denied_409
-    if _test_interleave is not None:
-        # Reload's teardown takes neither slot._lock nor the session-keyed switch
-        # lock, so nothing orders it against a switch's commit-then-reset span.
-        # Suspending here is the only way to hold the unguarded teardown open
-        # across another actor's whole transaction and observe what that produces.
-        await _test_interleave("reload:pre_reset")
-    reloaded = await _reset_slot_session(state, slot, session_key, skip_if_busy=True)
-    if not reloaded:
+    # Two locks, in the order documented at _slot_switch_session_lock:
+    # slot._lock, then the session lock. The four commit-before-reset switch
+    # handlers hold both across their commit-then-reset span, and reload joins
+    # them so its probe-then-teardown is serialized against that span:
+    # reload holds no setting to commit, but it tears the session down
+    # the same way, and holding neither lock let a reload land inside a
+    # switch's span -- the switch could report success on a session reload had
+    # already replaced, or vice versa. An ExitStack because the session lock's
+    # KEY is only known after the in-lock read below, and locking on any
+    # earlier read could leave this holding the wrong session lock.
+    async with contextlib.AsyncExitStack() as _stack:
+        await _stack.enter_async_context(slot._lock)
+        # Re-authorize after the await above: ``name`` can be recreated for a
+        # DIFFERENT app while this request queued on the lock (slot removal +
+        # re-registration under the same name is how a client reconnects), and
+        # the stale ``slot`` object's app-isolation check below would then
+        # authorize this teardown against the NEW slot's session -- the same
+        # cross-slot-identity gap the tags/folders/regenerate handlers close
+        # with this exact re-check (e.g. chat_tags.py's ``is not slot`` guard).
+        # A mismatch here is indistinguishable from a missing slot.
+        if state._slots.get(name) is not slot:
+            return web.json_response({"error": "not found", "code": "slot_not_found"}, status=404)
+        # The session the reload will tear down. ``effective_session_key``,
+        # never ``_history_key_for``: a channel- or cron-born slot runs its
+        # turns under its linked key, and the dashboard-prefixed spelling
+        # names a session that never existed -- the reset would "succeed"
+        # against nothing while the live process kept its stale config.
+        # Resolved INSIDE slot._lock, not before it: a channel/cron rebind can
+        # land while this request queues on the lock, so keying the session
+        # lock on an earlier read would guard the wrong session (see
+        # _slot_switch_session_lock).
+        session_key = effective_session_key(slot)
+        # Now serialize against every OTHER alias slot's switch on this same
+        # session, keyed on the value resolved just above -- the same one the
+        # probe and reset below use.
+        await _stack.enter_async_context(_slot_switch_session_lock(session_key))
+        # Re-authorize again: the session-lock wait above is a SECOND await
+        # point (real contention when a switch on the same session holds it),
+        # and a slot removal + re-registration under this name can land while
+        # this request queued on THAT lock just as easily as on slot._lock
+        # above. Without this, the 7396 check would guard only the first
+        # await and leave the exact gap it exists to close open on the
+        # second.
+        if state._slots.get(name) is not slot:
+            return web.json_response({"error": "not found", "code": "slot_not_found"}, status=404)
+        # Re-derive rather than trust the captured session_key: it names a
+        # MUTABLE attribute (slot.linked_session_key), so a cron/channel
+        # rebind landing on the SAME slot object during the session-lock wait
+        # changes what effective_session_key(slot) resolves to without
+        # tripping the identity check above. Mirrors the switch handlers'
+        # own post-lock ``effective_session_key(slot) != session_key`` guard.
+        if effective_session_key(slot) != session_key:
+            return web.json_response(
+                {"error": "slot session was rebound during the switch", "code": "session_rebound"},
+                status=409,
+            )
+        # App isolation, same policy as the cancel routes: reload is a
+        # teardown, so an app token must own both the slot and the session the
+        # teardown lands on, and a denial is indistinguishable from a missing
+        # slot.
+        denied = _app_cancel_denied(request, slot, "chat.slot_reload", session_key)
+        if denied is not None:
+            return denied
         provider = state.sessions.get_provider(session_key)
         if provider is not None and provider.has_active_turn():
             return web.json_response(
                 {"error": "a turn is in flight", "code": "turn_in_flight"}, status=409
             )
-        if provider is not None:
-            # A turn slipped into the guard window and already FINISHED: the
-            # declined reset left a live idle session untouched, and falling
-            # through would report success while the stale process survives --
-            # the silent failure this endpoint exists to prevent. Retry once;
-            # a second decline means another turn is genuinely racing, which
-            # is the turn-in-flight case.
-            reloaded = await _reset_slot_session(state, slot, session_key, skip_if_busy=True)
-            if not reloaded:
+        # Children guard, shared with api_chat_slot_continue: RUNNING children
+        # die with the parent runtime, and _subagents_attached_response
+        # documents why queued children and in-flight deliveries count too.
+        denied_409 = _subagents_attached_response(state, slot, session_key, "reload")
+        if denied_409 is not None:
+            return denied_409
+        if _test_interleave is not None:
+            # Reload now holds slot._lock and _slot_switch_session_lock across
+            # its probe-then-teardown, so its teardown is serialized against a
+            # switch's commit-then-reset span. Suspending here holds that
+            # span open across another actor's transaction so a test
+            # can observe that the other actor now blocks on the session lock
+            # instead of interleaving.
+            await _test_interleave("reload:pre_reset")
+        reloaded = await _reset_slot_session(state, slot, session_key, skip_if_busy=True)
+        if not reloaded:
+            provider = state.sessions.get_provider(session_key)
+            if provider is not None and provider.has_active_turn():
                 return web.json_response(
-                    {"error": "a turn is in flight", "code": "turn_in_flight"},
-                    status=409,
+                    {"error": "a turn is in flight", "code": "turn_in_flight"}, status=409
                 )
+            if provider is not None:
+                # A turn slipped into the guard window and already FINISHED:
+                # the declined reset left a live idle session untouched, and
+                # falling through would report success while the stale process
+                # survives -- the silent failure this endpoint exists to
+                # prevent. Retry once; a second decline means another turn is
+                # genuinely racing, which is the turn-in-flight case.
+                reloaded = await _reset_slot_session(state, slot, session_key, skip_if_busy=True)
+                if not reloaded:
+                    return web.json_response(
+                        {"error": "a turn is in flight", "code": "turn_in_flight"},
+                        status=409,
+                    )
+        # Re-check once more, still inside both locks: _reset_slot_session
+        # (and its one retry above) is itself an await, and _bind_cron_slot
+        # writes slot.linked_session_key with NO lock of its own, so a rebind
+        # can land during that specific await just as it can during the
+        # earlier lock-acquisition waits. Skipping this would report success
+        # while the now-current session was never touched -- the exact silent
+        # stale-session failure the two earlier checks exist to prevent, just
+        # moved one await later.
+        #
+        # Identity first, same as the 7399/7422 checks above: registry
+        # mutation (slot removal + same-name re-registration for a DIFFERENT
+        # app) takes no lock of its own, so it can land during this same
+        # await exactly as it can during the two earlier lock-acquisition
+        # waits those checks guard. A key-only re-check would still pass for
+        # a stale ``slot`` object recreated under app B's name whenever B's
+        # session happens to resolve to the same key, and the notice/
+        # broadcast below would then fire under B's identity -- the same
+        # cross-slot-identity gap the two earlier checks close, just moved to
+        # this last await. Same response as those checks: a mismatch here is
+        # indistinguishable from a missing slot.
+        if state._slots.get(name) is not slot:
+            return web.json_response({"error": "not found", "code": "slot_not_found"}, status=404)
+        if effective_session_key(slot) != session_key:
+            return web.json_response(
+                {"error": "slot session was rebound during the switch", "code": "session_rebound"},
+                status=409,
+            )
     logger.info("Slot %s session reloaded (had_live_session=%s)", name, reloaded)
     # Feed notice: the visible confirmation (and the durable record) that the
     # relaunch happened. Tagged so the last-real-message scans skip it on both

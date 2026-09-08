@@ -4906,6 +4906,8 @@
         "add_accounts_title": "添加账户",
         "add_accounts_summary": "注册本机更多的 AWS 配置文件",
         "add_accounts_intro": "这些本地 AWS 配置文件尚未注册。你添加的每一个都会成为其账户下的一个密钥。",
+        "add_accounts_search_placeholder": "搜索配置文件",
+        "add_accounts_search_keeps_selected": "你选中的配置文件即使不匹配也会留在列表里。",
         "add_accounts_none": "所有本地配置文件都已注册。",
         "add_accounts_unsupported": "在 Windows 上，AWS Control 无法访问本机的 AWS 配置文件：访问 AWS 需要 Linux 或 macOS shell。请在 WSL (Windows Subsystem for Linux) 中运行 {{productName}} 网关，然后注册你在其中配置的 AWS 配置文件。",
         "add_accounts_count_other": "已注册 {{count}} / {{max}}",
@@ -6915,6 +6917,8 @@
       "cancel_and_move_back_to_input": "取消并退回到输入框",
       "cancel_queued_message": "取消排队消息",
       "edit_queued_message": "编辑排队消息",
+      "hidden_attachments_other": "+{{count}} 个附件",
+      "hidden_lines_other": "+{{count}} 行",
       "interrupt_current_turn_and_send_this_now": "中断当前轮次并立即发送",
       "queued": "已排队",
       "run_later": "推后运行",
@@ -7347,6 +7351,15 @@
       "drag_to_capture_an_area_release_to_attach_esc_to": "拖动以截取区域 · 松开即附加 · Esc 取消",
       "drag_to_select_the_screen_region_to_capture": "拖动以选择要截取的屏幕区域",
       "screen_capture_drag_the_area_you_want_it_attache": "屏幕截图 — 拖出你想要的区域；松开后自动附加"
+    },
+    "startupVideoModal": {
+      "close": "关闭",
+      "feature_intro": "功能介绍",
+      "got_it": "知道了",
+      "media_failed": "无法加载功能视频",
+      "share": "共享",
+      "share_description": "把这个功能视频变成可以发布到任何地方的分享卡片。",
+      "share_include_title": "包含视频标题"
     },
     "tagManagerList": {
       "change_color": "更改{{name}}的颜色",
@@ -7955,6 +7968,19 @@
     "fileMenuContributions": {
       "app_actions": "应用操作",
       "contributed_by": "应用：{{app}}"
+    },
+    "featurePreviewIntro": {
+      "learn_more": "看看它长什么样",
+      "learn_more_about": "看看 {{feature}} 长什么样",
+      "gif_badge": "GIF",
+      "previous": "上一张",
+      "next": "下一张",
+      "captures": "截图",
+      "capture_n_of_m": "第 {{n}} 张，共 {{m}} 张",
+      "where_to_find": "你会在哪看到它",
+      "turn_on": "开启此预览",
+      "screenshot_badge": "截图",
+      "is_on": "此预览已开启。关闭只会把它隐藏起来，你创建的内容不会丢失"
     }
   },
   "hooks": {
@@ -9117,6 +9143,11 @@
         "blocked": "已拦截",
         "warning": "警告"
       },
+      "compactionCard": {
+        "no_summary": "已完成，无摘要可显示",
+        "summary_hint": "摘要已折叠，展开查看",
+        "title": "上下文已压缩"
+      },
       "recoveryCard": {
         "action_not_taken": "未执行操作",
         "announced_no_action_continuing": "已声明但未执行 · 已自动发送续接指令",
@@ -9538,6 +9569,7 @@
       "no_tools": "无工具",
       "open_activity_panel": "打开活动面板",
       "open_file": "打开文件 {{path}}",
+      "attached_file_inert": "附件（此处无法打开）：{{path}}",
       "open_folder": "打开文件夹 {{path}}",
       "plan_from_here_failed_error": "从此处规划失败：{{error}}",
       "pop_out_session_to_its_own_window": "把会话弹出到独立窗口",
@@ -10203,7 +10235,16 @@
         "inbound_webhook_tokens_registered_contexts_and_r": "入站 Webhook 令牌、已注册的上下文和运行历史。API 可用，但页面尚未完成。",
         "open_webhooks": "打开 Webhook",
         "the_crew_members_page_and_crew_mode_chats_both_a": "团队成员页面和 Crew Mode 聊天。两者仍在开发中，开启后才会显示。",
-        "webhooks": "Webhook"
+        "webhooks": "Webhook",
+        "intro": {
+          "webhooks_summary": "让另一个系统替你启动代理——CI、评审机器人、部署流水线——只需用你在 Webhooks 页面创建的访问令牌发送一条消息。",
+          "webhooks_where": "开启后，这张卡片在“设置”里会出现“打开 Webhooks”链接，新的 Webhooks 页面从那里进入；页面完成之前不会出现在侧边栏里。关闭后只是重新隐藏这个页面；你创建的 token 会保留。",
+          "webhooks_media_page": "Webhooks 页面：左侧是 token 列表，右侧是“让外部系统唤醒你的代理”的设置。",
+          "crew_summary": "Crew Members 是一个页面，列出你拥有的每个代理以及它当前在驱动什么；Crew Mode 聊天同时跑多个任务，每个主题各占一个会话，完成后再汇总回答。与下方的“在 crew 上聊天”预览无关，那个说的是另一台机器。",
+          "crew_where": "开启后，“Crew Members”会出现在侧边栏的 Sessions 下方，“新建 Crew Mode 聊天”会出现在“新建”按钮的菜单里。",
+          "crew_media_members": "Crew Members 页面，选中了一个成员并打开了它的活动面板。",
+          "crew_media_menu": "“新建”按钮的菜单里多出“新建 Crew Mode 聊天”。它上面的“实验性”标记，指的就是这同一个预览。"
+        }
       }
     },
     "developerPage": {
@@ -13980,6 +14021,7 @@
       "configuration": "配置",
       "details": "详情",
       "edit_in_crew_manager": "在团队管理页中编辑",
+      "edit_member": "编辑成员",
       "empty_roster": "还没有团队成员。在团队管理页创建一个 crew 后会显示在这里。",
       "inherited": "继承",
       "member_count_other": "{{count}} 位成员",
@@ -13994,8 +14036,9 @@
       "roster_load_failed": "无法加载成员名单。",
       "search_members": "搜索成员…",
       "add_member": "添加成员",
-      "slug_collision": "该成员与 {{name}} 的标识相同，对话已归属后者。请重命名其中一个 crew 以获得各自独立的对话。",
+      "slug_collision": "该成员与 {{name}} 的简称相同，对话已被后者占用。请重命名这两个成员中的一个，以获得各自独立的对话。",
       "thread_open_failed": "无法打开该成员的对话。",
+      "thread_repair_failed": "无法重新连接该对话。重新打开该成员以重试。",
       "title": "团队成员",
       "unread_message": "未读消息",
       "workspace": "工作区",

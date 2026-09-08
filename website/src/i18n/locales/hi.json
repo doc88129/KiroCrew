@@ -4991,6 +4991,8 @@
         "add_accounts_title": "खाते जोड़ें",
         "add_accounts_summary": "इस मशीन के और AWS प्रोफ़ाइल पंजीकृत करें",
         "add_accounts_intro": "ये स्थानीय AWS प्रोफ़ाइल अभी पंजीकृत नहीं हैं। जो भी जोड़ोगे वह उसके अकाउंट के अंतर्गत एक कुंजी बन जाएगी।",
+        "add_accounts_search_placeholder": "प्रोफ़ाइल खोजो",
+        "add_accounts_search_keeps_selected": "तुमने जो प्रोफ़ाइल चुनी हैं, वे मेल न खाने पर फी सूची में बनी रहती हैं।",
         "add_accounts_none": "सभी स्थानीय प्रोफ़ाइल पहले से पंजीकृत हैं।",
         "add_accounts_unsupported": "Windows पर AWS Control इस मशीन के AWS प्रोफ़ाइल तक नहीं पहुँच सकता: AWS ऐक्सेस के लिए Linux या macOS शेल चाहिए। {{productName}} गेटवे को WSL (Windows Subsystem for Linux) में चलाएँ, फिर वहाँ सेट किए प्रोफ़ाइल रजिस्टर करें।",
         "add_accounts_count_one": "{{max}} में से {{count}} पंजीकृत",
@@ -7022,6 +7024,10 @@
       "cancel_and_move_back_to_input": "रद्द करें और इनपुट पर वापस जाएँ",
       "cancel_queued_message": "कतारबद्ध संदेश रद्द करें",
       "edit_queued_message": "कतारबद्ध संदेश संपादित करें",
+      "hidden_attachments_one": "+{{count}} अटैचमेंट",
+      "hidden_attachments_other": "+{{count}} अटैचमेंट",
+      "hidden_lines_one": "+{{count}} पंक्ति",
+      "hidden_lines_other": "+{{count}} पंक्तियाँ",
       "interrupt_current_turn_and_send_this_now": "वर्तमान टर्न रोककर इसे अभी भेजें",
       "queued": "कतार में",
       "run_later": "बाद में चलाएँ",
@@ -7456,6 +7462,15 @@
       "drag_to_capture_an_area_release_to_attach_esc_to": "क्षेत्र कैप्चर करने के लिए ड्रैग करें · अटैच करने के लिए छोड़ें · रद्द करने के लिए Esc",
       "drag_to_select_the_screen_region_to_capture": "कैप्चर करने के लिए स्क्रीन का क्षेत्र चुनने के लिए ड्रैग करें",
       "screen_capture_drag_the_area_you_want_it_attache": "स्क्रीन कैप्चर — जो क्षेत्र चाहिए उसे ड्रैग करें; छोड़ने पर यह स्वतः अटैच हो जाता है"
+    },
+    "startupVideoModal": {
+      "close": "बंद करें",
+      "feature_intro": "फ़ीचर परिचय",
+      "got_it": "समझ गया",
+      "media_failed": "फ़ीचर वीडियो लोड नहीं हो सका",
+      "share": "साझा करो",
+      "share_description": "इस फ़ीचर वीडियो को शेयर कार्ड बनाओ जिसे कहीं भी पोस्ट कर सकते हो।",
+      "share_include_title": "वीडियो का शीर्षक शामिल करो"
     },
     "tagManagerList": {
       "change_color": "{{name}} का रंग बदलें",
@@ -8065,6 +8080,19 @@
     "fileMenuContributions": {
       "app_actions": "ऐप कार्रवाइयाँ",
       "contributed_by": "ऐप: {{app}}"
+    },
+    "featurePreviewIntro": {
+      "learn_more": "देखो यह कैसा दिखता है",
+      "learn_more_about": "देखो {{feature}} कैसा दिखता है",
+      "gif_badge": "GIF",
+      "previous": "पिछला स्क्रीनशॉट",
+      "next": "अगला स्क्रीनशॉट",
+      "captures": "स्क्रीनशॉट",
+      "capture_n_of_m": "स्क्रीनशॉट {{n}} / {{m}}",
+      "where_to_find": "यह तुम्हें कहाँ दिखेगा",
+      "turn_on": "यह प्रीव्यू चालू करो",
+      "screenshot_badge": "स्क्रीनशॉट",
+      "is_on": "यह प्रीव्यू चालू है — बंद करने पर यह बस छिप जाता है, तुम्हारा बनाया कुछ भी नहीं खोता"
     }
   },
   "hooks": {
@@ -9245,6 +9273,11 @@
         "blocked": "अवरुद्ध",
         "warning": "चेतावनी"
       },
+      "compactionCard": {
+        "no_summary": "पूर्ण — दिखाने के लिए कोई सारांश नहीं",
+        "summary_hint": "सारांश संक्षिप्त है — पढ़ने के लिए विस्तृत करें",
+        "title": "संदर्भ संकुचित किया गया"
+      },
       "recoveryCard": {
         "action_not_taken": "कोई कार्रवाई नहीं की गई",
         "announced_no_action_continuing": "घोषित किया गया लेकिन नहीं किया गया · जारी रखने का अनुरोध अपने-आप भेज दिया गया",
@@ -9676,6 +9709,7 @@
       "no_tools": "कोई टूल नहीं",
       "open_activity_panel": "गतिविधि पैनल खोलो",
       "open_file": "फ़ाइल {{path}} खोलें",
+      "attached_file_inert": "संलग्न फ़ाइल (यहाँ नहीं खोली जा सकती): {{path}}",
       "open_folder": "फ़ोल्डर {{path}} खोलें",
       "plan_from_here_failed_error": "यहाँ से योजना बनाना विफल: {{error}}",
       "pop_out_session_to_its_own_window": "सत्र को अपनी अलग विंडो में पॉप आउट करें",
@@ -10353,7 +10387,16 @@
         "inbound_webhook_tokens_registered_contexts_and_r": "इनबाउंड वेबहुक टोकन, पंजीकृत संदर्भ और रन इतिहास. API काम करता है, पेज अभी पूरा नहीं हुआ है.",
         "open_webhooks": "वेबहुक खोलें",
         "the_crew_members_page_and_crew_mode_chats_both_a": "क्रू सदस्य पेज और Crew Mode चैट. दोनों अभी बनाए जा रहे हैं, इसलिए इसे चालू करने तक कोई भी उपलब्ध नहीं होगा.",
-        "webhooks": "वेबहुक"
+        "webhooks": "वेबहुक",
+        "intro": {
+          "webhooks_summary": "कोई दूसरा सिस्टम (CI, रिव्यू बॉट, डिप्लॉय पाइपलाइन) Webhooks पेज पर बनाए गए access token के साथ एक मैसेज भेजकर तुम्हारी जगह एजेंट चला सकता है।",
+          "webhooks_where": "इसे चालू करने पर सेटिंग्स में इस कार्ड पर “Webhooks खोलो” लिंक दिखता है; नया Webhooks पेज वहीं से खुलता है। पेज पूरा होने तक यह साइडबार में नहीं दिखता। इसे बंद करने पर पेज बस फिर छिप जाता है; तुम्हारे बनाए token बने रहते हैं।",
+          "webhooks_media_page": "Webhooks पेज: बाईं ओर token की सूची, दाईं ओर “किसी बाहरी सिस्टम को अपने एजेंट को जगाने दो” वाला सेटअप।",
+          "crew_summary": "Crew Members एक पेज है जो तुम्हारे हर एजेंट को और वह अभी क्या चला रहा है, यह सूची में दिखाता है; Crew Mode चैट कई काम एक साथ चलाती है, हर विषय अपने अलग सेशन में, और पूरा होने पर जवाब देती है। नीचे वाले “किसी crew पर चैट करें” प्रीव्यू से इसका कोई संबंध नहीं है; वह दूसरी मशीन के बारे में है।",
+          "crew_where": "इसे चालू करते ही साइडबार में Sessions के नीचे “Crew Members” और New बटन के मेन्यू में “नई Crew Mode चैट” दिखने लगती है।",
+          "crew_media_members": "Crew Members पेज, जिसमें एक सदस्य चुना हुआ है और उसका गतिविधि पैनल खुला है।",
+          "crew_media_menu": "New बटन का मेन्यू, जिसमें “नई Crew Mode चैट” जुड़ी है। उस पर लगा Experimental बैज इसी प्रीव्यू के लिए मेन्यू का टैग है।"
+        }
       }
     },
     "developerPage": {
@@ -14162,6 +14205,7 @@
       "configuration": "कॉन्फ़िगरेशन",
       "details": "विवरण",
       "edit_in_crew_manager": "क्रू प्रबंधक में संपादित करें",
+      "edit_member": "सदस्य संपादित करें",
       "empty_roster": "अभी कोई क्रू सदस्य नहीं है। क्रू प्रबंधक में एक क्रू बनाएं, वह यहां दिखेगी।",
       "inherited": "विरासत में मिला",
       "member_count_one": "{{count}} सदस्य",
@@ -14177,8 +14221,9 @@
       "roster_load_failed": "सदस्य सूची लोड नहीं हो सकी।",
       "search_members": "सदस्य खोजें…",
       "add_member": "सदस्य जोड़ें",
-      "slug_collision": "इस सदस्य का पहचानकर्ता {{name}} से मेल खाता है, जिसकी बातचीत पहले से इसे रखती है। प्रत्येक को अपनी बातचीत देने के लिए किसी एक क्रू का नाम बदलें।",
+      "slug_collision": "इस सदस्य का छोटा नाम {{name}} के समान है, जिसकी बातचीत पहले से इसका उपयोग करती है। प्रत्येक को अपनी बातचीत देने के लिए दोनों सदस्यों में से किसी एक का नाम बदलें।",
       "thread_open_failed": "इस सदस्य की बातचीत नहीं खोली जा सकी।",
+      "thread_repair_failed": "इस बातचीत को फिर से कनेक्ट नहीं किया जा सका। फिर से कोशिश करने के लिए सदस्य को दोबारा खोलें।",
       "title": "क्रू सदस्य",
       "unread_message": "अपठित संदेश",
       "workspace": "वर्कस्पेस",

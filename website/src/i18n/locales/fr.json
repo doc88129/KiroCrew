@@ -5072,6 +5072,8 @@
         "add_accounts_title": "Ajouter des comptes",
         "add_accounts_summary": "Enregistrer d'autres profils AWS de cette machine",
         "add_accounts_intro": "Ces profils AWS locaux ne sont pas encore enregistrés. Chacun de ceux que tu ajoutes devient une clé de son compte.",
+        "add_accounts_search_placeholder": "Rechercher des profils",
+        "add_accounts_search_keeps_selected": "Les profils que tu as sélectionnés restent affichés même s’ils ne correspondent pas.",
         "add_accounts_none": "Tous les profils locaux sont déjà enregistrés.",
         "add_accounts_unsupported": "AWS Control n'accède pas aux profils AWS de cette machine sous Windows : son accès AWS exige un shell Linux ou macOS. Lance la passerelle {{productName}} sous WSL (Windows Subsystem for Linux), puis enregistre les profils configurés là-bas.",
         "add_accounts_count_one": "{{count}} sur {{max}} enregistré",
@@ -7129,6 +7131,12 @@
       "cancel_and_move_back_to_input": "Annuler et revenir à la saisie",
       "cancel_queued_message": "Annuler le message en file d'attente",
       "edit_queued_message": "Modifier le message en file d'attente",
+      "hidden_attachments_many": "+{{count}} pièces jointes",
+      "hidden_attachments_one": "+{{count}} pièce jointe",
+      "hidden_attachments_other": "+{{count}} pièces jointes",
+      "hidden_lines_many": "+{{count}} lignes",
+      "hidden_lines_one": "+{{count}} ligne",
+      "hidden_lines_other": "+{{count}} lignes",
       "interrupt_current_turn_and_send_this_now": "Interrompre le tour en cours et envoyer maintenant",
       "queued": "en file d'attente",
       "run_later": "Exécuter plus tard",
@@ -7565,6 +7573,15 @@
       "drag_to_capture_an_area_release_to_attach_esc_to": "Faites glisser pour capturer une zone · relâchez pour la joindre · Esc pour annuler",
       "drag_to_select_the_screen_region_to_capture": "Faites glisser pour sélectionner la zone de l'écran à capturer",
       "screen_capture_drag_the_area_you_want_it_attache": "Capture d'écran — faites glisser sur la zone souhaitée ; elle est jointe automatiquement au relâchement"
+    },
+    "startupVideoModal": {
+      "close": "Fermer",
+      "feature_intro": "Présentation de la fonctionnalité",
+      "got_it": "J'ai compris",
+      "media_failed": "Impossible de charger la vidéo de la fonctionnalité",
+      "share": "Partager",
+      "share_description": "Transformez cette vidéo de fonctionnalité en carte à publier où vous voulez.",
+      "share_include_title": "Inclure le titre de la vidéo"
     },
     "tagManagerList": {
       "change_color": "Changer la couleur de {{name}}",
@@ -8175,6 +8192,19 @@
     "fileMenuContributions": {
       "app_actions": "Actions de l'application",
       "contributed_by": "Application : {{app}}"
+    },
+    "featurePreviewIntro": {
+      "learn_more": "Voir à quoi ça ressemble",
+      "learn_more_about": "Voir à quoi ressemble {{feature}}",
+      "gif_badge": "GIF",
+      "previous": "Capture précédente",
+      "next": "Capture suivante",
+      "captures": "Captures",
+      "capture_n_of_m": "Capture {{n}} sur {{m}}",
+      "where_to_find": "Où tu le verras",
+      "turn_on": "Activer cet aperçu",
+      "screenshot_badge": "Capture d’écran",
+      "is_on": "Cet aperçu est activé — le désactiver ne fait que le masquer, rien de ce que tu as créé n’est perdu"
     }
   },
   "hooks": {
@@ -9373,6 +9403,11 @@
         "blocked": "Bloqué",
         "warning": "Avertissement"
       },
+      "compactionCard": {
+        "no_summary": "Terminé — aucun résumé à afficher",
+        "summary_hint": "Résumé replié — développer pour lire",
+        "title": "Contexte compacté"
+      },
       "recoveryCard": {
         "action_not_taken": "Action non effectuée",
         "announced_no_action_continuing": "annoncé mais non effectué · reprise envoyée automatiquement",
@@ -9814,6 +9849,7 @@
       "no_tools": "Aucun outil",
       "open_activity_panel": "Ouvrir le panneau d’activité",
       "open_file": "Ouvrir le fichier {{path}}",
+      "attached_file_inert": "Fichier joint (impossible de l'ouvrir ici) : {{path}}",
       "open_folder": "Ouvrir le dossier {{path}}",
       "plan_from_here_failed_error": "Échec de la planification à partir d’ici : {{error}}",
       "pop_out_session_to_its_own_window": "Détacher la session dans sa propre fenêtre",
@@ -10503,7 +10539,16 @@
         "inbound_webhook_tokens_registered_contexts_and_r": "Jetons de webhooks entrants, contextes enregistrés et historique des exécutions. L'API fonctionne, mais la page n'est pas terminée.",
         "open_webhooks": "Ouvrir Webhooks",
         "the_crew_members_page_and_crew_mode_chats_both_a": "La page Membres de l'équipe et les chats Crew Mode. Les deux sont encore en construction : rien n'est proposé tant que cette option n'est pas activée.",
-        "webhooks": "Webhooks"
+        "webhooks": "Webhooks",
+        "intro": {
+          "webhooks_summary": "Un autre système (CI, bot de revue, pipeline de déploiement) peut lancer ton agent à ta place en envoyant un message avec un jeton d’accès que tu crées sur la page Webhooks.",
+          "webhooks_where": "Une fois activé, le lien « Ouvrir Webhooks » apparaît sur cette carte dans les Réglages ; c’est de là que s’ouvre la nouvelle page Webhooks. Elle n’apparaît pas dans la barre latérale tant qu’elle n’est pas terminée. Le désactiver ne fait que masquer la page à nouveau ; les jetons que tu as créés sont conservés.",
+          "webhooks_media_page": "La page Webhooks : la liste des jetons à gauche, la configuration « Laisser un système externe réveiller ton agent » à droite.",
+          "crew_summary": "Crew Members est une page qui liste chacun de tes agents et ce qu’il pilote en ce moment ; une discussion en Crew Mode mène plusieurs tâches à la fois, chaque sujet dans sa propre session, et répond quand elles aboutissent. Sans rapport avec l’aperçu « Discuter sur un Crew » ci-dessous, qui concerne une autre machine.",
+          "crew_where": "« Crew Members » apparaît dans la barre latérale sous Sessions et « Nouvelle discussion Crew Mode » dans le menu du bouton Nouveau, tous deux dès que ceci est activé.",
+          "crew_media_members": "La page Crew Members, avec un membre sélectionné et son panneau d’activité ouvert.",
+          "crew_media_menu": "Le menu du bouton Nouveau avec « Nouvelle discussion Crew Mode » ajouté. Son badge Expérimental est l’étiquette du menu pour ce même aperçu."
+        }
       }
     },
     "developerPage": {
@@ -14343,6 +14388,7 @@
       "configuration": "Configuration",
       "details": "Détails",
       "edit_in_crew_manager": "Modifier dans le gestionnaire d'équipes",
+      "edit_member": "Modifier le membre",
       "empty_roster": "Aucun membre pour l'instant. Créez une équipe dans le gestionnaire pour la voir ici.",
       "inherited": "Hérité",
       "member_count_many": "{{count}} membres",
@@ -14359,8 +14405,9 @@
       "roster_load_failed": "Impossible de charger la liste des membres.",
       "search_members": "Rechercher des membres…",
       "add_member": "Ajouter un membre",
-      "slug_collision": "Ce membre partage son identifiant avec {{name}}, dont la conversation le détient déjà. Renommez l'une des équipes pour que chacune ait sa propre conversation.",
+      "slug_collision": "Ce membre partage son nom court avec {{name}}, dont la conversation l'utilise déjà. Renommez l'un des deux membres pour que chacun ait sa propre conversation.",
       "thread_open_failed": "Impossible d'ouvrir la conversation de ce membre.",
+      "thread_repair_failed": "Impossible de reconnecter cette conversation. Rouvrez le membre pour réessayer.",
       "title": "Membres de l'équipe",
       "unread_message": "Message non lu",
       "workspace": "Espace de travail",

@@ -15,7 +15,9 @@ vi.mock('../../api/client', () => ({
     memberActivity: vi.fn(() => Promise.resolve({ slug: '', member: '', capped: false, entries: [] })),
     crons: vi.fn(() => Promise.resolve({ jobs: [] })),
     webhooks: vi.fn(() => Promise.resolve({ tokens: [] })),
-    kirocrewAgents: vi.fn(() => Promise.resolve({ agents: [], default_agent: '' })),
+    // The drawer's wake block reads the default crew through the shared
+    // ['default-agent'] query (defaultAgentQuery), not the whole registry.
+    defaultAgent: vi.fn(() => Promise.resolve({ default_agent: '' })),
     // The auto-patrol block and roster badge read the whole loop registry;
     // the default is "feature on, nothing armed" so every other case renders
     // the page without a loop in the way.
@@ -139,6 +141,7 @@ beforeEach(() => {
   )
   vi.mocked(api.crons).mockImplementation(() => Promise.resolve({ jobs: [] }))
   vi.mocked(api.webhooks).mockImplementation(() => Promise.resolve({ tokens: [] }))
+  vi.mocked(api.defaultAgent).mockImplementation(() => Promise.resolve({ default_agent: '' }))
   // The patrol cases make this registry read REJECT (mockRejectedValue also
   // outlives clearAllMocks); a leaked rejection renders the roster's patrol
   // error alert into every later case.
@@ -167,6 +170,108 @@ describe('MembersPage roster', () => {
     expect(
       await screen.findByText(/Could not load the member roster/i),
     ).toBeInTheDocument()
+    // No roster to count: the header says so with a dash, never "0 members"
+    // above a failure it would contradict.
+    expect(screen.getByTestId('member-count')).toHaveTextContent('\u2014')
+    expect(screen.getByTestId('member-count')).not.toHaveTextContent(/members/i)
+  })
+})
+
+/* The roster is a React Query read (issue #9418). These cases pin what that
+ * buys the user: a return to the page renders the CACHED roster and thread at
+ * once — never the empty column, never the skeleton — while the network
+ * refreshes behind; and a crew written anywhere else reaches the list through
+ * the registry-prefix invalidation, in place. The page is unmounted and
+ * remounted INSIDE one provider tree (rerender keeps the QueryClient), which
+ * is exactly a navigation away and back. */
+describe('MembersPage roster cache (React Query)', () => {
+  const page = (
+    <>
+      <MembersPage />
+      <LocationProbe />
+    </>
+  )
+
+  it('a second mount renders the cached roster immediately and, inside the stale window, issues no request at all', async () => {
+    const utils = await renderPage([row(), row({ name: 'research', slug: 'research' })])
+    await rosterRow('research')
+    expect(api.members).toHaveBeenCalledTimes(1)
+    // Navigate away…
+    utils.rerender(<LocationProbe />)
+    expect(screen.queryByTestId('member-roster')).toBeNull()
+    // …and back. The rows are there on the very first frame: no request has
+    // had a chance to answer yet, so this can only be the cache.
+    utils.rerender(page)
+    expect(roster().getByText('oncall')).toBeInTheDocument()
+    expect(roster().getByText('research')).toBeInTheDocument()
+    expect(screen.queryByText(/No crew members yet/i)).toBeNull()
+    // The roster carries its own 30s staleTime (membersRosterQuery), which
+    // wins over the test client's 0: a return inside that window is served
+    // from cache with NO refetch — that is the request the user stopped
+    // paying for. The refresh-behind path is pinned by the invalidation case
+    // below, and by the fixed staleTime through refetchOnMount.
+    await act(async () => {
+      await new Promise((r) => setTimeout(r, 20))
+    })
+    expect(api.members).toHaveBeenCalledTimes(1)
+    expect(roster().getByText('oncall')).toBeInTheDocument()
+  })
+
+  it('a second mount mounts the cached thread at once; the repair POST is re-issued but never waited on', async () => {
+    const utils = await renderPage([row()])
+    expect(await screen.findByTestId('chat-pane-stub')).toHaveTextContent('member-oncall')
+    expect(api.memberThread).toHaveBeenCalledTimes(1)
+    utils.rerender(<LocationProbe />)
+    // The re-open's POST hangs forever: if the thread column waited on the
+    // network, "Opening the conversation…" would be all it shows.
+    ;(api.memberThread as ReturnType<typeof vi.fn>).mockReturnValue(new Promise(() => {}))
+    utils.rerender(page)
+    expect(await screen.findByTestId('chat-pane-stub')).toHaveTextContent('member-oncall')
+    expect(screen.queryByText(/Opening the conversation/i)).toBeNull()
+    // Every open still goes through the endpoint — the cache decides what to
+    // render while the POST is out, it never replaces the POST.
+    await waitFor(() => expect(api.memberThread).toHaveBeenCalledTimes(2))
+  })
+
+  it('a failed repair over a cached thread keeps the thread up and says the RECONNECT failed, not the open', async () => {
+    const utils = await renderPage([row()])
+    expect(await screen.findByTestId('chat-pane-stub')).toHaveTextContent('member-oncall')
+    utils.rerender(<LocationProbe />)
+    ;(api.memberThread as ReturnType<typeof vi.fn>).mockRejectedValue(new Error('boom'))
+    utils.rerender(page)
+    const notice = await screen.findByTestId('member-thread-error')
+    expect(notice).toHaveTextContent(/Couldn't reconnect this conversation/i)
+    // "Could not open" would contradict the conversation still rendered below.
+    expect(notice).not.toHaveTextContent(/Could not open/i)
+    expect(screen.getByTestId('chat-pane-stub')).toHaveTextContent('member-oncall')
+  })
+
+  it('invalidating the crew-registry prefix (what the crew editor and the websocket hook do) refreshes the roster in place', async () => {
+    const { queryClient } = await renderPage([row()])
+    await rosterRow('oncall')
+    ;(api.members as ReturnType<typeof vi.fn>).mockResolvedValue({
+      members: [row(), row({ name: 'research', slug: 'research' })],
+      default_agent: 'kirocrew',
+    })
+    await act(async () => {
+      await queryClient.invalidateQueries({ queryKey: ['kirocrew-agents'] })
+    })
+    expect(await rosterRow('research')).toBeInTheDocument()
+    // In place: the row that was already there never left the screen.
+    expect(roster().getByText('oncall')).toBeInTheDocument()
+    expect(screen.queryByText(/No crew members yet/i)).toBeNull()
+  })
+
+  it('a refetch failure after a good read keeps the last roster instead of flipping to the error state', async () => {
+    const { queryClient } = await renderPage([row()])
+    await rosterRow('oncall')
+    ;(api.members as ReturnType<typeof vi.fn>).mockRejectedValue(new Error('boom'))
+    await act(async () => {
+      await queryClient.invalidateQueries({ queryKey: ['kirocrew-agents'] })
+    })
+    await waitFor(() => expect(api.members).toHaveBeenCalledTimes(2))
+    expect(roster().getByText('oncall')).toBeInTheDocument()
+    expect(screen.queryByText(/Could not load the member roster/i)).toBeNull()
   })
 })
 
@@ -237,7 +342,7 @@ describe('MembersPage thread', () => {
       { thread: { slot_key: 'member-oncall', slug: 'oncall', member: 'Oncall', created: false } },
     )
     fireEvent.click(await rosterRow('oncall'))
-    expect(await screen.findByText(/shares its identifier with/i)).toBeInTheDocument()
+    expect(await screen.findByText(/shares its short name with/i)).toBeInTheDocument()
     // The misrouted thread is NOT mounted — that is the entire point.
     expect(screen.queryByTestId('chat-pane-stub')).toBeNull()
   })
@@ -339,18 +444,20 @@ describe('MembersPage drawer and edit jump', () => {
     await waitFor(() => expect(screen.queryByTestId('member-drawer')).toBeNull())
   })
 
-  it('the edit affordance lives in the drawer only and navigates to the crew manager crews tab', async () => {
+  it('the edit affordance lives in the drawer only and navigates to this member\'s editor in the crew manager', async () => {
     await renderPage([row({ bound: true, slot_key: 'member-oncall' })])
     fireEvent.click(await rosterRow('oncall'))
     // Edit is a rare secondary action: it must NOT be a header-level peer of
-    // Details. The header carries exactly one action (the drawer toggle).
+    // Details (issue #9425 placed it INSIDE the title row instead, revealed
+    // on hover — see the "member edit entry" block below).
     expect(screen.queryByTestId('member-edit-jump')).toBeNull()
     // Mutation check: the assertion is on the DESTINATION (explicit ?tab=crews
-    // beats CapabilitiesPage's remembered last tab), so retargeting the jump
+    // beats CapabilitiesPage's remembered last tab, and ?crew=<name> opens
+    // THIS member's editor rather than the roster), so retargeting the jump
     // anywhere else fails here.
     for (const btn of screen.getAllByRole('button', { name: /edit in crew manager/i })) {
       fireEvent.click(btn)
-      expect(navigateSpy).toHaveBeenCalledWith('/capabilities?tab=crews')
+      expect(navigateSpy).toHaveBeenCalledWith('/capabilities?tab=crews&crew=oncall')
       navigateSpy.mockClear()
     }
   })
@@ -914,68 +1021,93 @@ describe('MembersPage auto patrol (monitor loop status)', () => {
   })
 })
 
-describe('MembersPage avatar entry (issue #9103)', () => {
-  const AVATAR_LINK = '/capabilities?tab=crews&crew=oncall&avatar=1'
+describe('MembersPage member edit entry (issue #9425)', () => {
+  const EDIT_LINK = '/capabilities?tab=crews&crew=oncall'
 
   beforeEach(() => { localStorage.clear() })
 
-  it('the DM header face is an "Edit avatar" button that deep-links into the crew manager builder', async () => {
+  it('the DM header carries a pencil right of the name, named "Edit member", that opens this member\'s editor', async () => {
     await renderPage([row({ bound: true, slot_key: 'member-oncall' })])
     fireEvent.click(await rosterRow('oncall'))
-    const face = await screen.findByTestId('member-avatar-button')
-    expect(face.tagName).toBe('BUTTON')
-    expect(face).toHaveAccessibleName('Edit avatar')
-    // Visible affordance travels with the face: scrim for hover, badge for touch.
-    expect(face.querySelector('[data-testid="avatar-edit-scrim"]')).not.toBeNull()
-    expect(face.querySelector('[data-testid="avatar-edit-badge"]')).not.toBeNull()
-    fireEvent.click(face)
-    // Mutation check on the DESTINATION: this page never writes — the
-    // builder opens in the crew manager, on THIS crew, with the builder up.
-    expect(navigateSpy).toHaveBeenCalledWith(AVATAR_LINK)
+    const btn = await screen.findByTestId('member-edit-name-button')
+    expect(btn.tagName).toBe('BUTTON')
+    // The label names what the click does — the whole editor, not the builder.
+    expect(btn).toHaveAccessibleName('Edit member')
+    expect(btn).toHaveAttribute('title', 'Edit member')
+    expect(btn.querySelector('svg')).not.toBeNull()
+    // It sits INSIDE the title row, after the name — not a header-level peer
+    // of the drawer toggle.
+    const titleRow = screen.getByTestId('member-title-row')
+    expect(titleRow).toContainElement(btn)
+    expect(titleRow.textContent).toContain('oncall')
+    expect(titleRow.compareDocumentPosition(screen.getByTestId('member-drawer-toggle')) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+    fireEvent.click(btn)
+    // Mutation check on the DESTINATION: this page never writes — the crew
+    // manager opens THIS crew's editor. No `&avatar=1`: the builder is one
+    // row inside that editor, not where an "edit this member" click lands.
+    expect(navigateSpy).toHaveBeenCalledWith(EDIT_LINK)
+    expect(navigateSpy).not.toHaveBeenCalledWith(expect.stringContaining('avatar=1'))
   })
 
-  it('the drawer carries an explicit "Edit avatar" text route to the same destination', async () => {
+  it('the pencil is invisible at rest, revealed by hovering the title row or by focus, and low-contrast-persistent on touch', async () => {
+    await renderPage([row({ bound: true, slot_key: 'member-oncall' })])
+    fireEvent.click(await rosterRow('oncall'))
+    const btn = await screen.findByTestId('member-edit-name-button')
+    const cls = btn.className
+    expect(cls).toContain('opacity-0')
+    expect(cls).toContain('group-hover/title:opacity-100')
+    expect(cls).toContain('focus-visible:opacity-100')
+    // Reveal is scoped to the TITLE row, so hovering the drawer toggle to the
+    // right does not summon it.
+    expect(screen.getByTestId('member-title-row').className).toContain('group/title')
+    // Transition present, deferring to prefers-reduced-motion.
+    expect(cls).toContain('transition-opacity')
+    expect(cls).toContain('motion-reduce:transition-none')
+    // No hover on touch: the pencil stays, dimmed, instead of never appearing.
+    expect(cls).toContain('[@media(hover:none)]:opacity-60')
+  })
+
+  it('the chat surface\'s avatar is just an avatar: no scrim, no badge, no chip, no text "Edit avatar" button', async () => {
+    // The #9116 shapes the user rejected: the face wrapped as an "Edit avatar"
+    // button, a full-width "Edit avatar" text button in the drawer and an
+    // "Edit this avatar" chip beside the header face. The default-face
+    // fixture (`{}`) is exactly the one that used to summon the chip.
+    await renderPage([row({ bound: true, slot_key: 'member-oncall', avatar: {} })])
+    fireEvent.click(await rosterRow('oncall'))
+    await screen.findByTestId('member-drawer')
+    expect(screen.queryByTestId('member-avatar-button')).toBeNull()
+    expect(screen.queryByTestId('avatar-edit-scrim')).toBeNull()
+    expect(screen.queryByTestId('avatar-edit-badge')).toBeNull()
+    expect(screen.queryByTestId('avatar-edit-hint')).toBeNull()
+    expect(screen.queryByTestId('member-edit-avatar')).toBeNull()
+    expect(screen.queryByRole('button', { name: /edit avatar/i })).toBeNull()
+    expect(screen.queryByText('Edit this avatar')).toBeNull()
+  })
+
+  it('the DM header has no rule under it — it meets the transcript on spacing alone, like ChatPage\'s session header', async () => {
+    await renderPage([row({ bound: true, slot_key: 'member-oncall' })])
+    fireEvent.click(await rosterRow('oncall'))
+    const header = await screen.findByTestId('member-thread-header')
+    expect(header.tagName).toBe('HEADER')
+    expect(header.className).not.toMatch(/\bborder-b\b/)
+    expect(header.className).not.toMatch(/\bborder-border\b/)
+    // Still set off from the transcript by its own padding.
+    expect(header.className).toMatch(/\bpy-2\b/)
+  })
+
+  it('the drawer\'s one text route agrees with the pencil on the destination', async () => {
     await renderPage([row({ bound: true, slot_key: 'member-oncall' })])
     fireEvent.click(await rosterRow('oncall'))
     await screen.findByTestId('member-drawer')
-    const btn = screen.getByTestId('member-edit-avatar')
-    expect(btn).toHaveTextContent('Edit avatar')
-    fireEvent.click(btn)
-    expect(navigateSpy).toHaveBeenCalledWith(AVATAR_LINK)
-    // The existing roster-level edit route is untouched.
-    expect(screen.getByRole('button', { name: /edit in crew manager/i })).toBeInTheDocument()
+    fireEvent.click(screen.getByTestId('member-edit-in-manager'))
+    expect(navigateSpy).toHaveBeenCalledWith(EDIT_LINK)
   })
 
   it('encodes the crew name in the deep link', async () => {
     await renderPage([row({ name: 'on call/2', slug: 'on-call-2', bound: true, slot_key: 'member-on-call-2' })])
     fireEvent.click(await rosterRow('on call/2'))
-    fireEvent.click(await screen.findByTestId('member-avatar-button'))
-    expect(navigateSpy).toHaveBeenCalledWith('/capabilities?tab=crews&crew=on%20call%2F2&avatar=1')
-  })
-
-  it('shows the one-time "Edit this avatar" chip only while the member wears the default face', async () => {
-    // The real backend stores `{}` for "no override" — truthy, so a raw
-    // `!avatar` test would hide the chip for EVERY default face. The row
-    // fixture here carries exactly that shape.
-    await renderPage([
-      row({ bound: true, slot_key: 'member-oncall', avatar: {} }),
-      row({ name: 'beta', slug: 'beta', avatar: { kind: 'image', v: 1 } }),
-    ])
-    fireEvent.click(await rosterRow('oncall'))
-    const chip = await screen.findByTestId('avatar-edit-hint')
-    expect(chip).toHaveTextContent('Edit this avatar')
-    // A member with a custom face gets no nudge.
-    fireEvent.click(await rosterRow('beta'))
-    await waitFor(() => expect(screen.queryByTestId('avatar-edit-hint')).toBeNull())
-  })
-
-  it('the chip leaves through the click that opens the builder, and stays gone', async () => {
-    await renderPage([row({ bound: true, slot_key: 'member-oncall' })])
-    fireEvent.click(await rosterRow('oncall'))
-    fireEvent.click(await screen.findByTestId('avatar-edit-hint'))
-    expect(navigateSpy).toHaveBeenCalledWith(AVATAR_LINK)
-    expect(screen.queryByTestId('avatar-edit-hint')).toBeNull()
-    expect(localStorage.getItem('mc-avatar-edit-hint-dismissed')).toBe('1')
+    fireEvent.click(await screen.findByTestId('member-edit-name-button'))
+    expect(navigateSpy).toHaveBeenCalledWith('/capabilities?tab=crews&crew=on%20call%2F2')
   })
 })
 
@@ -1016,6 +1148,51 @@ describe('MembersPage default member, memory and URL', () => {
     expect(screen.queryByText(/Pick a member/i)).toBeNull()
     expect(currentUrl()).toBe('/members?member=fresh-talker')
     expect(localStorage.getItem(LAST_MEMBER_KEY)).toBe('fresh-talker')
+  })
+
+  it('a refresh-frame refetch never reorders the roster; a membership change re-sorts it', async () => {
+    const membersMock = api.members as ReturnType<typeof vi.fn>
+    const utils = await renderPage([
+      row({ name: 'alpha', slug: 'alpha', last_active_ts: 100 }),
+      row({ name: 'beta', slug: 'beta', last_active_ts: 50 }),
+    ])
+    const names = () =>
+      roster()
+        .getAllByRole('listitem')
+        .map((li) => within(li).queryByText(/^(alpha|beta|gamma)$/)?.textContent)
+        .filter(Boolean)
+    await waitFor(() => expect(names()).toEqual(['alpha', 'beta']))
+    // beta's activity advances server-side and a refresh-frame refetch lands
+    // it. The ORDER must hold: re-sorting here moves rows under the cursor
+    // mid-click, so the click opens a different member's durable thread.
+    membersMock.mockResolvedValue({
+      members: [
+        row({ name: 'alpha', slug: 'alpha', last_active_ts: 100 }),
+        row({ name: 'beta', slug: 'beta', last_active_ts: 999, last_message: 'fresh row content' }),
+      ],
+      default_agent: 'kirocrew',
+    })
+    act(() => {
+      void utils.queryClient.invalidateQueries({ queryKey: ['kirocrew-agents'] })
+    })
+    // Content updated in place…
+    await roster().findByText('fresh row content')
+    // …but the order did not move.
+    expect(names()).toEqual(['alpha', 'beta'])
+    // A membership change (a new crew appears) re-sorts from scratch by recency.
+    membersMock.mockResolvedValue({
+      members: [
+        row({ name: 'alpha', slug: 'alpha', last_active_ts: 100 }),
+        row({ name: 'beta', slug: 'beta', last_active_ts: 999 }),
+        row({ name: 'gamma', slug: 'gamma', last_active_ts: 500 }),
+      ],
+      default_agent: 'kirocrew',
+    })
+    act(() => {
+      void utils.queryClient.invalidateQueries({ queryKey: ['kirocrew-agents'] })
+    })
+    await rosterRow('gamma')
+    expect(names()).toEqual(['beta', 'gamma', 'alpha'])
   })
 
   it('restores the remembered member on return (and after a reload)', async () => {

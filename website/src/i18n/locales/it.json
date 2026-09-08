@@ -5072,6 +5072,8 @@
         "add_accounts_title": "Aggiungi account",
         "add_accounts_summary": "Registra altri profili AWS di questa macchina",
         "add_accounts_intro": "Questi profili AWS locali non sono ancora registrati. Ognuno che aggiungi diventa una chiave del suo account.",
+        "add_accounts_search_placeholder": "Cerca profili",
+        "add_accounts_search_keeps_selected": "I profili che hai selezionato restano nell’elenco anche se non corrispondono.",
         "add_accounts_none": "Tutti i profili locali sono già registrati.",
         "add_accounts_unsupported": "Su Windows AWS Control non riesce a raggiungere i profili AWS di questa macchina: il suo accesso ad AWS richiede una shell Linux o macOS. Esegui il gateway {{productName}} in WSL (Windows Subsystem for Linux), poi registra lì i profili configurati.",
         "add_accounts_count_one": "{{count}} su {{max}} registrato",
@@ -7129,6 +7131,12 @@
       "cancel_and_move_back_to_input": "Annulla e torna all'input",
       "cancel_queued_message": "Annulla il messaggio in coda",
       "edit_queued_message": "Modifica il messaggio in coda",
+      "hidden_attachments_many": "+{{count}} allegati",
+      "hidden_attachments_one": "+{{count}} allegato",
+      "hidden_attachments_other": "+{{count}} allegati",
+      "hidden_lines_many": "+{{count}} righe",
+      "hidden_lines_one": "+{{count}} riga",
+      "hidden_lines_other": "+{{count}} righe",
       "interrupt_current_turn_and_send_this_now": "Interrompi il turno corrente e invia subito questo",
       "queued": "in coda",
       "run_later": "Esegui dopo",
@@ -7565,6 +7573,15 @@
       "drag_to_capture_an_area_release_to_attach_esc_to": "Trascina per catturare un'area · rilascia per allegare · Esc per annullare",
       "drag_to_select_the_screen_region_to_capture": "Trascina per selezionare l'area dello schermo da catturare",
       "screen_capture_drag_the_area_you_want_it_attache": "Cattura dello schermo — trascina l'area desiderata; viene allegata automaticamente al rilascio"
+    },
+    "startupVideoModal": {
+      "close": "Chiudi",
+      "feature_intro": "Introduzione alla funzionalità",
+      "got_it": "Ho capito",
+      "media_failed": "Non è stato possibile caricare il video della funzionalità",
+      "share": "Condividi",
+      "share_description": "Trasforma questo video della funzione in una scheda che puoi pubblicare dove vuoi.",
+      "share_include_title": "Includi il titolo del video"
     },
     "tagManagerList": {
       "change_color": "Cambia il colore di {{name}}",
@@ -8175,6 +8192,19 @@
     "fileMenuContributions": {
       "app_actions": "Azioni dell'app",
       "contributed_by": "App: {{app}}"
+    },
+    "featurePreviewIntro": {
+      "learn_more": "Guarda com’è fatto",
+      "learn_more_about": "Guarda com’è fatto {{feature}}",
+      "gif_badge": "GIF",
+      "previous": "Cattura precedente",
+      "next": "Cattura successiva",
+      "captures": "Catture",
+      "capture_n_of_m": "Cattura {{n}} di {{m}}",
+      "where_to_find": "Dove lo vedrai",
+      "turn_on": "Attiva questa anteprima",
+      "screenshot_badge": "Screenshot",
+      "is_on": "Questa anteprima è attiva: disattivarla la nasconde soltanto, nulla di ciò che hai creato va perso"
     }
   },
   "hooks": {
@@ -9373,6 +9403,11 @@
         "blocked": "Bloccato",
         "warning": "Avviso"
       },
+      "compactionCard": {
+        "no_summary": "Completato: nessun riepilogo da mostrare",
+        "summary_hint": "Riepilogo ripiegato: espandi per leggerlo",
+        "title": "Contesto compattato"
+      },
       "recoveryCard": {
         "action_not_taken": "Azione non eseguita",
         "announced_no_action_continuing": "annunciato ma non eseguito · continuazione inviata automaticamente",
@@ -9814,6 +9849,7 @@
       "no_tools": "Nessuno strumento",
       "open_activity_panel": "Apri il pannello attività",
       "open_file": "Apri il file {{path}}",
+      "attached_file_inert": "File allegato (non può essere aperto qui): {{path}}",
       "open_folder": "Apri la cartella {{path}}",
       "plan_from_here_failed_error": "Pianificazione da qui non riuscita: {{error}}",
       "pop_out_session_to_its_own_window": "Apri la sessione in una finestra separata",
@@ -10503,7 +10539,16 @@
         "inbound_webhook_tokens_registered_contexts_and_r": "Token dei webhook in ingresso, contesti registrati e cronologia delle esecuzioni. L’API funziona, ma la pagina non è finita.",
         "open_webhooks": "Apri Webhooks",
         "the_crew_members_page_and_crew_mode_chats_both_a": "La pagina Membri della crew e le chat Crew Mode. Entrambi sono ancora in sviluppo, quindi non vengono proposti finché non si attiva questa opzione.",
-        "webhooks": "Webhooks"
+        "webhooks": "Webhooks",
+        "intro": {
+          "webhooks_summary": "Un altro sistema (CI, un bot di revisione, una pipeline di deploy) può avviare il tuo agente per te inviando un messaggio con un token di accesso che crei nella pagina Webhooks.",
+          "webhooks_where": "Una volta attivo, su questa scheda nelle Impostazioni compare il link «Apri Webhooks», da cui si apre la nuova pagina Webhooks; non compare nella barra laterale finché non è finita. Disattivarlo nasconde di nuovo la pagina e nulla più; i token che hai creato restano.",
+          "webhooks_media_page": "La pagina Webhooks: a sinistra l’elenco dei token, a destra la configurazione «Lascia che un sistema esterno svegli il tuo agente».",
+          "crew_summary": "Crew Members è una pagina che elenca ogni agente che hai e cosa sta guidando in questo momento; una chat in Crew Mode esegue più lavori insieme, ogni argomento nella sua sessione, e risponde quando finiscono. Non ha a che fare con l’anteprima «Chatta su un Crew» qui sotto, che riguarda un’altra macchina.",
+          "crew_where": "«Crew Members» compare nella barra laterale sotto Sessioni e «Nuova chat Crew Mode» nel menu del pulsante Nuovo, entrambi appena attivi questo.",
+          "crew_media_members": "La pagina Crew Members con un membro selezionato e il suo pannello attività aperto.",
+          "crew_media_menu": "Il menu del pulsante Nuovo con «Nuova chat Crew Mode» aggiunta. Il suo badge Sperimentale è l’etichetta del menu per questa stessa anteprima."
+        }
       }
     },
     "developerPage": {
@@ -14342,6 +14387,7 @@
       "configuration": "Configurazione",
       "details": "Dettagli",
       "edit_in_crew_manager": "Modifica nel gestore delle crew",
+      "edit_member": "Modifica membro",
       "empty_roster": "Ancora nessun membro. Crea una crew nel gestore per vederla qui.",
       "inherited": "Ereditato",
       "member_count_many": "{{count}} membri",
@@ -14358,8 +14404,9 @@
       "roster_load_failed": "Impossibile caricare l'elenco dei membri.",
       "search_members": "Cerca membri…",
       "add_member": "Aggiungi membro",
-      "slug_collision": "Questo membro condivide il proprio identificatore con {{name}}, la cui conversazione lo possiede già. Rinomina una delle crew perché ognuna abbia la propria conversazione.",
+      "slug_collision": "Questo membro condivide il nome breve con {{name}}, la cui conversazione lo usa già. Rinomina uno dei due membri perché ognuno abbia la propria conversazione.",
       "thread_open_failed": "Impossibile aprire la conversazione di questo membro.",
+      "thread_repair_failed": "Impossibile riconnettere questa conversazione. Riapri il membro per riprovare.",
       "title": "Membri della crew",
       "unread_message": "Messaggio non letto",
       "workspace": "Spazio di lavoro",

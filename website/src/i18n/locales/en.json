@@ -3869,6 +3869,8 @@
         "add_accounts_title": "Add accounts",
         "add_accounts_summary": "Register more of this machine's AWS profiles",
         "add_accounts_intro": "These local AWS profiles aren't registered yet. Each one you add becomes a key under its account.",
+        "add_accounts_search_placeholder": "Search profiles",
+        "add_accounts_search_keeps_selected": "Profiles you've selected stay listed even when they don't match.",
         "add_accounts_none": "Every local profile is already registered.",
         "add_accounts_unsupported": "AWS Control can't reach this machine's AWS profiles on Windows: its AWS access needs a Linux or macOS shell. Run the {{productName}} gateway under WSL (Windows Subsystem for Linux), then register the profiles you set up there.",
         "add_accounts_count_one": "{{count}} of {{max}} registered",
@@ -6117,6 +6119,11 @@
         "blocked": "Blocked",
         "warning": "Warning"
       },
+      "compactionCard": {
+        "no_summary": "Done — no summary to show",
+        "summary_hint": "Summary folded — expand to read",
+        "title": "Context compacted"
+      },
       "recoveryCard": {
         "action_not_taken": "Action not taken",
         "announced_no_action_continuing": "announced but not done · continuation sent automatically",
@@ -6937,6 +6944,7 @@
       "configuration": "Configuration",
       "details": "Details",
       "edit_in_crew_manager": "Edit in crew manager",
+      "edit_member": "Edit member",
       "empty_roster": "No crew members yet. Create a crew in the crew manager to see it here.",
       "inherited": "Inherited",
       "member_count_one": "{{count}} member",
@@ -6952,8 +6960,9 @@
       "roster_load_failed": "Could not load the member roster.",
       "search_members": "Search members…",
       "add_member": "Add member",
-      "slug_collision": "This member shares its identifier with {{name}}, whose thread already owns it. Rename one of the crews to give each its own thread.",
+      "slug_collision": "This member shares its short name with {{name}}, whose conversation already uses it. Rename one of the two members to give each its own conversation.",
       "thread_open_failed": "Could not open this member's conversation.",
+      "thread_repair_failed": "Couldn't reconnect this conversation. Reopen the member to try again.",
       "title": "Crew Members",
       "unread_message": "Unread message",
       "workspace": "Workspace",

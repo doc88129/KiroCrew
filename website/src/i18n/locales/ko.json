@@ -4906,6 +4906,8 @@
         "add_accounts_title": "계정 추가",
         "add_accounts_summary": "이 컴퓨터의 AWS 프로필을 더 등록",
         "add_accounts_intro": "이 로컬 AWS 프로필은 아직 등록되지 않았습니다. 추가하는 각 프로필은 해당 계정의 키가 됩니다.",
+        "add_accounts_search_placeholder": "프로필 검색",
+        "add_accounts_search_keeps_selected": "선택한 프로필은 검색어와 일치하지 않아도 목록에 남습니다.",
         "add_accounts_none": "모든 로컬 프로필이 이미 등록되어 있습니다.",
         "add_accounts_unsupported": "Windows에서는 AWS Control이 이 컴퓨터의 AWS 프로필에 접근할 수 없습니다. AWS 접근에는 Linux 또는 macOS 쉘이 필요합니다. WSL (Windows Subsystem for Linux)에서 {{productName}} 게이트웨이를 실행한 뒤 그곳에서 설정한 프로필을 등록하세요.",
         "add_accounts_count_other": "{{max}}개 중 {{count}}개 등록됨",
@@ -6915,6 +6917,8 @@
       "cancel_and_move_back_to_input": "취소하고 입력창으로 되돌리기",
       "cancel_queued_message": "대기 중인 메시지 취소",
       "edit_queued_message": "대기 중인 메시지 편집",
+      "hidden_attachments_other": "+첨부 파일 {{count}}개",
+      "hidden_lines_other": "+{{count}}줄",
       "interrupt_current_turn_and_send_this_now": "현재 턴을 중단하고 지금 보내기",
       "queued": "대기 중",
       "run_later": "나중에 실행",
@@ -7347,6 +7351,15 @@
       "drag_to_capture_an_area_release_to_attach_esc_to": "끌어서 영역 캡처 · 놓으면 첨부 · Esc로 취소",
       "drag_to_select_the_screen_region_to_capture": "끌어서 캡처할 화면 영역을 선택하세요",
       "screen_capture_drag_the_area_you_want_it_attache": "화면 캡처 — 원하는 영역을 끌면 놓는 순간 자동으로 첨부됩니다"
+    },
+    "startupVideoModal": {
+      "close": "닫기",
+      "feature_intro": "기능 소개",
+      "got_it": "확인",
+      "media_failed": "기능 소개 동영상을 불러올 수 없습니다",
+      "share": "공유",
+      "share_description": "이 기능 소개 영상을 어디에나 게시할 수 있는 공유 카드로 만듭니다.",
+      "share_include_title": "영상 제목 포함"
     },
     "tagManagerList": {
       "change_color": "{{name}}의 색상 변경",
@@ -7955,6 +7968,19 @@
     "fileMenuContributions": {
       "app_actions": "앱 작업",
       "contributed_by": "앱: {{app}}"
+    },
+    "featurePreviewIntro": {
+      "learn_more": "어떻게 보이는지 보기",
+      "learn_more_about": "{{feature}} 어떻게 보이는지 보기",
+      "gif_badge": "GIF",
+      "previous": "이전 캡처",
+      "next": "다음 캡처",
+      "captures": "캡처",
+      "capture_n_of_m": "캡처 {{n}} / {{m}}",
+      "where_to_find": "어디에 나타나는지",
+      "turn_on": "이 미리보기 켜기",
+      "screenshot_badge": "스크린샷",
+      "is_on": "이 미리보기가 켜져 있습니다. 끄면 숨겨질 뿐이며 만든 것은 사라지지 않습니다"
     }
   },
   "hooks": {
@@ -9117,6 +9143,11 @@
         "blocked": "차단됨",
         "warning": "경고"
       },
+      "compactionCard": {
+        "no_summary": "완료 — 표시할 요약 없음",
+        "summary_hint": "요약이 접혀 있습니다 — 펼쳐서 보기",
+        "title": "컨텍스트가 압축되었습니다"
+      },
       "recoveryCard": {
         "action_not_taken": "작업이 실행되지 않음",
         "announced_no_action_continuing": "예고했지만 실행되지 않음 · 자동으로 후속 요청 전송됨",
@@ -9538,6 +9569,7 @@
       "no_tools": "도구 없음",
       "open_activity_panel": "활동 패널 열기",
       "open_file": "파일 {{path}} 열기",
+      "attached_file_inert": "첨부 파일 (여기에서는 열 수 없음): {{path}}",
       "open_folder": "폴더 {{path}} 열기",
       "plan_from_here_failed_error": "여기서부터 계획하기에 실패했습니다: {{error}}",
       "pop_out_session_to_its_own_window": "세션을 별도 창으로 분리",
@@ -10203,7 +10235,16 @@
         "inbound_webhook_tokens_registered_contexts_and_r": "수신 웹훅 토큰, 등록된 컨텍스트, 실행 기록입니다. API는 동작하지만 페이지는 아직 완성되지 않았습니다.",
         "open_webhooks": "Webhooks 열기",
         "the_crew_members_page_and_crew_mode_chats_both_a": "크루 멤버 페이지와 Crew Mode 채팅입니다. 둘 다 아직 개발 중이므로 이 옵션을 켜기 전에는 표시되지 않습니다.",
-        "webhooks": "Webhooks"
+        "webhooks": "Webhooks",
+        "intro": {
+          "webhooks_summary": "다른 시스템(CI, 리뷰 봇, 배포 파이프라인)이 Webhooks 페이지에서 만든 액세스 토큰으로 메시지를 보내 대신 에이전트를 실행할 수 있습니다.",
+          "webhooks_where": "켜면 설정의 이 카드에 “Webhooks 열기” 링크가 나타나고, 새 Webhooks 페이지는 거기서 열립니다. 페이지가 완성될 때까지 사이드바에는 나타나지 않습니다.끄면 페이지가 다시 숨겨질 뿐이며, 만든 토큰은 그대로 유지됩니다.",
+          "webhooks_media_page": "Webhooks 페이지: 왼쪽은 토큰 목록, 오른쪽은 “외부 시스템이 에이전트를 깨우게 하기” 설정입니다.",
+          "crew_summary": "Crew Members는 그 에이전트 전부와 각각이 지금 무엇을 이끌고 있는지 보여 주는 페이지이며, Crew Mode 채팅은 여러 작업을 동시에 진행하고 주제마다 별도 세션을 두고 끝나면 모아서 답합니다. 아래의 “crew에서 채팅” 미리보기와는 무관합니다. 그것은 다른 머신에 관한 것입니다.",
+          "crew_where": "켜는 즉시 사이드바의 Sessions 아래에 “Crew Members”가, 새로 만들기 버튼 메뉴에 “새 Crew Mode 채팅”이 나타납니다.",
+          "crew_media_members": "멤버 하나를 선택해 활동 패널을 연 Crew Members 페이지입니다.",
+          "crew_media_menu": "새로 만들기 버튼 메뉴에 “새 Crew Mode 채팅”이 추가된 모습입니다. 붙어 있는 Experimental 표시는 이 동일한 미리보기를 가리키는 메뉴 쪽 태그입니다."
+        }
       }
     },
     "developerPage": {
@@ -13980,6 +14021,7 @@
       "configuration": "구성",
       "details": "상세",
       "edit_in_crew_manager": "크루 관리 페이지에서 편집",
+      "edit_member": "멤버 편집",
       "empty_roster": "아직 크루 멤버가 없습니다. 크루 관리 페이지에서 만들면 여기에 표시됩니다.",
       "inherited": "상속됨",
       "member_count_other": "멤버 {{count}}명",
@@ -13994,8 +14036,9 @@
       "roster_load_failed": "멤버 명단을 불러오지 못했습니다.",
       "search_members": "멤버 검색…",
       "add_member": "멤버 추가",
-      "slug_collision": "이 멤버는 {{name}}와(과) 식별자가 같아 대화가 이미 그쪽에 속해 있습니다. 각자 별도의 대화를 가지려면 크루 이름 중 하나를 변경하세요.",
+      "slug_collision": "이 멤버는 {{name}}와(과) 짧은 이름이 같아 대화가 이미 그쪽에서 사용 중입니다. 각자 별도의 대화를 가지려면 두 멤버 중 하나의 이름을 변경하세요.",
       "thread_open_failed": "이 멤버의 대화를 열 수 없습니다.",
+      "thread_repair_failed": "이 대화에 다시 연결할 수 없습니다. 멤버를 다시 열어 다시 시도하세요.",
       "title": "크루 멤버",
       "unread_message": "읽지 않은 메시지",
       "workspace": "워크스페이스",

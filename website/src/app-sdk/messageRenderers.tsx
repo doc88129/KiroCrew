@@ -30,14 +30,14 @@ import { renderMcpOAuthMessage } from '../pages/chat/McpOAuthBanner'
 import SubagentCompletionCard from '../pages/chat/SubagentCompletionCard'
 import NudgeCard from '../pages/chat/NudgeCard'
 import NoticeCard from '../pages/chat/NoticeCard'
+import { SystemNoticeRow, isSystemNoticeRow } from '../pages/chat/CompactionCard'
 import { ErrorCard } from '../pages/chat/ErrorCard'
 import StopEventCard from '../pages/chat/StopEventCard'
 import { isSubagentCompletionMessage } from '../pages/chat/subagentCompletion'
 import { REASONING_ROLES } from '../pages/chat/groupDisplayItems'
 import MarkdownRenderer from '../components/MarkdownRenderer'
 import MessageErrorBoundary from '../components/MessageErrorBoundary'
-import PastedChip from '../components/PastedChip'
-import { type PasteBlock, findTokenRanges, recollapsePastes } from '../utils/pasteTokens'
+import { renderUserContent } from '../pages/chat/ChatPageMessageContent'
 import type { ChatMessage } from '../types'
 import { fmtMessageTime, fmtMessageTimeFull } from '../pages/chat/messageTime'
 import { turnHadPolicyBlock } from './turnPolicyBlock'
@@ -77,43 +77,6 @@ export interface MessageRenderer {
   /** Returning null draws nothing. That an ENTRY EXISTS is what separates a
    *  deliberately undrawn role from one no renderer claims. */
   render: (m: ChatMessage, ctx: MessageRenderContext) => React.ReactNode
-}
-
-function renderUserContent(content: string, meta: Record<string, unknown> | undefined): React.ReactNode {
-  // History load re-serves the fully-EXPANDED paste content alongside
-  // meta.pastes. Handing a large paste (hundreds of KB / tens of thousands of
-  // lines) straight to MarkdownRenderer parses + lays it out on the main thread
-  // and freezes the tab. Re-collapse the message's own blocks back to
-  // `[ Paste #N ]` chips so only the small token text is rendered.
-  const pastes = (meta?.pastes as PasteBlock[] | undefined) || []
-  if (pastes.length) {
-    let text = content
-    let ranges = findTokenRanges(text, pastes)
-    if (!ranges.length) {
-      const collapsed = recollapsePastes(content, pastes)
-      if (collapsed !== content) { text = collapsed; ranges = findTokenRanges(text, pastes) }
-    }
-    if (ranges.length) {
-      const out: React.ReactNode[] = []
-      let last = 0
-      ranges.forEach((r, i) => {
-        const trimStart = text[r.start - 1] === '\n' ? r.start - 1 : r.start
-        const trimEnd = text[r.end] === '\n' ? r.end + 1 : r.end
-        if (trimStart > last) {
-          const seg = text.slice(last, trimStart)
-          if (seg) out.push(<span key={`t${i}`} style={{ whiteSpace: 'pre-wrap' }}>{seg}</span>)
-        }
-        out.push(<PastedChip key={`p${i}-${r.block.id}`} block={r.block} />)
-        last = trimEnd
-      })
-      if (last < text.length) {
-        const seg = text.slice(last)
-        if (seg) out.push(<span key="tend" style={{ whiteSpace: 'pre-wrap' }}>{seg}</span>)
-      }
-      return <MessageErrorBoundary rawContent={text}>{out}</MessageErrorBoundary>
-    }
-  }
-  return <MessageErrorBoundary rawContent={content}><MarkdownRenderer content={content} /></MessageErrorBoundary>
 }
 
 /**
@@ -385,16 +348,39 @@ export const defaultMessageRenderers: readonly MessageRenderer[] = [
   {
     id: 'user',
     roles: ['user'],
+    // The user bubble's CONTENT is drawn by the same helper ChatPage uses
+    // (pastes re-collapsed to chips, attachments as inline images and file
+    // cards, folder chips), so a member DM or split pane shows exactly what
+    // the main chat shows for the same row. The registry used to carry its
+    // own copy that knew pastes only: an attached image — present on the row
+    // as `![image](dest)` markdown, or, on older pane rows, only on
+    // `meta.files` — rendered as nothing, though the same row drew fine on
+    // ChatPage. A host that opens files supplies `ctx.onFileOpen`; without it
+    // the cards and chips still render, inert.
     render: (m, ctx) => ctx.wrapper(
       <UserMessage
         content={m.content}
         meta={m.meta}
         timestamp={formatTs(m.ts)}
         timestampTitle={fmtMessageTimeFull(m.ts)}
-        renderContent={renderUserContent}
+        renderContent={(c, mt) => renderUserContent({ content: c, meta: mt, onFileOpen: ctx.onFileOpen })}
       />,
       true,
     ),
+  },
+  {
+    // Refines `assistant`, so it must precede it: a gateway system notice
+    // (kind=compaction / kind=session_reload — the set lib/systemNotice.ts
+    // already skips in the last-real-message scans) is a status row, not a
+    // reply. The compaction row's content is the backend's whole context
+    // summary; folded behind a one-line card here so an embed surface
+    // (ChatEmbed, SideChat) never paints it as a reply either. The dashboard
+    // row set (pages/chat/transcriptRenderers) registers the same id and
+    // replaces this entry with an identical row.
+    id: 'system_notice',
+    roles: ['assistant'],
+    match: isSystemNoticeRow,
+    render: (m, ctx) => ctx.row(<SystemNoticeRow message={m} disclosureKey={ctx.key} />),
   },
   {
     id: 'assistant',

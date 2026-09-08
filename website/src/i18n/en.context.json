@@ -262,6 +262,7 @@
     "pages.mcpGatewayCard.pid": "\"PID\" = operating-system process id, labelling a number. A term of art; keep the acronym practitioners in the target language use.",
     "pages.mcpGatewayCard.rss": "\"RSS\" = resident set size, the process's physical memory use, labelling a byte count. NOT the web feed format.",
     "pages.mcpGatewayCard.s": "The unit \"s\" = seconds, rendered directly after a number (`30s`). Not a plural marker.",
+    "pages.membersPage.edit_member": "Accessible name and tooltip of a clickable crew face on the Crew Members chat page: opens that member's whole editor (name, template, model, workspace, triggers, avatar), NOT only the avatar builder. \"Edit\" as an imperative verb; \"member\" = a crew member (an agent), same noun as member_count.",
     "pages.overview.memoryTab.add": "Verb on a button: add an entry to the list beside it. If the target language needs an object, name the thing being added.",
     "pages.overview.portabilityTab.kb": "The unit \"KB\" = kilobytes, rendered after a numeric size. NOT \"knowledge base\", which is a separate feature in this product that shares the abbreviation in English.",
     "pages.overview.tokenDailyChart.all": "Filter option meaning no filter — show every item. A quantifier over the list beside it, not the adjective \"whole\".",
@@ -333,6 +334,7 @@
     "apps.awsControl.console.move_no_folders": "Empty state of the move-file folder picker (AWS Control cloud drive) when the file is at the top level and the current listing has no folders, so there is nowhere to move it.",
     "apps.awsControl.console.move_moving": "Progress line in the move-file folder picker (AWS Control cloud drive) while the server copies then deletes the object. The verb \"move\" in progress, same word as the row's Move action.",
     "apps.awsControl.console.library_add_empty": "Empty state of the \"Add from Artifacts\" picker (AWS Control cloud drive) when the user has NO artifacts at all — distinct from library_add_none, which is a search or filter that matched nothing.",
-    "components.markdownCard.raw": "Segment label on the Formatted | Raw toggle of a markdown content card in the chat transcript, paired with \"Formatted\". Selects the verbatim markdown SOURCE (the exact text, unrendered, with an edit affordance) over the rendered view. \"Raw\" as in unprocessed source, not uncooked food; keep it to one short word, it sits in a two-segment toggle."
+    "components.markdownCard.raw": "Segment label on the Formatted | Raw toggle of a markdown content card in the chat transcript, paired with \"Formatted\". Selects the verbatim markdown SOURCE (the exact text, unrendered, with an edit affordance) over the rendered view. \"Raw\" as in unprocessed source, not uncooked food; keep it to one short word, it sits in a two-segment toggle.",
+    "components.featurePreviewIntro.gif_badge": "Tiny corner badge over a looping animated capture in the Feature Preview \"Learn more\" dialog (Settings > Developer), marking the picture as an animation rather than a still. The file-format abbreviation GIF; most languages keep it as-is."
   }
 }
