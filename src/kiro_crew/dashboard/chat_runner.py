@@ -4000,7 +4000,7 @@ async def _consume_pending_reset(
                 # drop it ("unknown" fails open), mirroring
                 # `_reset_slot_session`'s BaseException path. This reset does
                 # not go through that helper, so it owns the drop itself.
-                slot.record_model_withheld(None)
+                slot.forget_session_model_state()
                 logger.warning(
                     "Failed to consume pending project-change reset for slot %s",
                     slot.key,
@@ -4014,7 +4014,7 @@ async def _consume_pending_reset(
                     # leaves the session — and therefore its verdict — live
                     # and accurate, and erasing it would let the dashboard
                     # show a withheld model as available.
-                    slot.record_model_withheld(None)
+                    slot.forget_session_model_state()
                     torn_down = True
                     if slot._pending_reset_history_key == pending_key:
                         slot._pending_reset_history_key = None
@@ -4071,7 +4071,7 @@ async def _consume_pending_reset(
             # reset above: a refusal is a normal outcome on this path (turn in
             # flight -> flag stays armed, session untouched), so dropping before
             # would forget a verdict that is still accurate.
-            slot.record_model_withheld(None)
+            slot.forget_session_model_state()
             if slot._pending_discard_conversation_key == discard_key:
                 slot._pending_discard_conversation_key = None
             # The discarded conversation's MCP report describes a session that no
@@ -6908,6 +6908,17 @@ async def _run_chat(
             # that, and the frontend fails open on it.
             verdict = _pinned_model_verdict(client, slot.model, provider_name)
             slot.record_model_withheld(verdict)
+        if is_new or resumed:
+            # Record what this fresh/reloaded session actually RUNS on, for both
+            # branches above: the inheriting slot (no pin — the first branch,
+            # whose backfill leaves `slot.model` empty on purpose) is the one
+            # whose chip has nothing else to name, and a withheld pin runs on
+            # the same served default. Read through the provider's PUBLIC
+            # `served_model` accessor — `client` here is the AcpProvider
+            # wrapper, which resolves both client shapes and filters the
+            # `auto` sentinel to `""`; the ACP-private `_resolved_model_id`
+            # does not exist on it.
+            slot.record_served_model(str(getattr(client, "served_model", "") or ""))
         if verdict:
             withheld_pin = True
             # The session just advertised what this account can run, and the pin
@@ -12468,7 +12479,7 @@ async def _run_chat(
                 # both branches and before the await, so a failed teardown leaves
                 # the slot at "unknown" rather than carrying a verdict it can no
                 # longer vouch for.
-                slot.record_model_withheld(None)
+                slot.forget_session_model_state()
                 try:
                     if needs_conversation_discard:
                         # Poisoned-conversation escalation: clear ONLY the
