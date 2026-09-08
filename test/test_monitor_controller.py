@@ -30,13 +30,15 @@ class _Provider:
         self.result = result
         self.previous: list[dict[str, object]] = []
 
-    def probe(self, target: str, *, previous_observation=None):
-        self.previous.append(deepcopy(previous_observation or {}))
-        return self.result
+    def probe(self, subjects, *, previous_observations=None):
+        previous = previous_observations or {}
+        for subject in subjects:
+            self.previous.append(deepcopy(previous.get(subject) or {}))
+        return {subject: self.result for subject in subjects}
 
 
 class _RaisingProvider:
-    def probe(self, target: str, *, previous_observation=None):
+    def probe(self, subjects, *, previous_observations=None):
         raise RuntimeError("provider bug")
 
 
@@ -47,12 +49,12 @@ class _BlockingProvider:
         self.release = threading.Event()
         self.targets: list[str] = []
 
-    def probe(self, target: str, *, previous_observation=None):
-        self.targets.append(target)
+    def probe(self, subjects, *, previous_observations=None):
+        self.targets.extend(subjects)
         self.entered.set()
         if not self.release.wait(timeout=2):
             raise RuntimeError("test did not release provider")
-        return self.result
+        return {subject: self.result for subject in subjects}
 
 
 def _result(
@@ -1404,4 +1406,85 @@ async def test_a_delivered_wake_keeps_the_evidence_that_claimed_it(tmp_path):
 
     assert verdict.decision is MonitorDecision.WAKE_ACTIONABLE
     assert verdict.entries == (result.observation,)
+    service.stop()
+
+
+@pytest.mark.asyncio
+async def test_a_provider_that_omits_the_requested_subject_fails_closed(tmp_path):
+    """A missing key is a fault, not a verdict.
+
+    The plural boundary lets a provider answer for a subset of what it was asked.
+    Reading a mapping that has no entry for this monitor's own target must land
+    on the same transient-provider path as a raised exception, because there is
+    no observation to decide from and silence is not evidence of anything.
+    """
+
+    class _EmptyProvider:
+        def probe(self, subjects, *, previous_observations=None):
+            return {}
+
+    dispatched = AsyncMock()
+    service, loop, controller = await _armed(
+        tmp_path,
+        result=_result(MonitorObservationStatus.PENDING),
+        dispatch=dispatched,
+    )
+    controller._provider = _EmptyProvider()
+
+    verdict = await controller.tick(loop, now=120.0)
+
+    assert verdict.decision is MonitorDecision.RETRY_PROVIDER
+    assert loop.monitor is not None
+    assert loop.monitor.last_provider_error is ProviderErrorKind.TRANSIENT
+    dispatched.assert_not_awaited()
+    service.stop()
+
+
+@pytest.mark.asyncio
+async def test_a_provider_returning_an_untyped_result_fails_closed(tmp_path):
+    """The decision engine cannot reject a wrong-shaped result, so the controller must."""
+
+    class _UntypedProvider:
+        def probe(self, subjects, *, previous_observations=None):
+            return {subject: "not a probe result" for subject in subjects}
+
+    dispatched = AsyncMock()
+    service, loop, controller = await _armed(
+        tmp_path,
+        result=_result(MonitorObservationStatus.PENDING),
+        dispatch=dispatched,
+    )
+    controller._provider = _UntypedProvider()
+
+    verdict = await controller.tick(loop, now=120.0)
+
+    assert verdict.decision is MonitorDecision.RETRY_PROVIDER
+    assert loop.monitor is not None
+    assert loop.monitor.last_provider_error is ProviderErrorKind.TRANSIENT
+    dispatched.assert_not_awaited()
+    service.stop()
+
+
+@pytest.mark.asyncio
+async def test_the_controller_asks_for_exactly_its_own_subject(tmp_path):
+    """One monitor is one subject; the plural call must not widen that."""
+    provider_result = _result(MonitorObservationStatus.PENDING)
+    service, loop, controller = await _armed(
+        tmp_path,
+        result=provider_result,
+        dispatch=AsyncMock(),
+    )
+    assert loop.monitor is not None
+    seen: list[tuple[str, ...]] = []
+
+    class _RecordingProvider:
+        def probe(self, subjects, *, previous_observations=None):
+            seen.append(tuple(subjects))
+            return {subject: provider_result for subject in subjects}
+
+    controller._provider = _RecordingProvider()
+
+    await controller.tick(loop, now=120.0)
+
+    assert seen == [(loop.monitor.target,)]
     service.stop()
