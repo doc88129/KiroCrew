@@ -5663,6 +5663,7 @@
       "history_load_failed": "无法加载此会话的消息。",
       "model_list": "模型列表",
       "retry": "重试",
+      "stop_failed": "无法停止此轮对话（{{error}}）。请重试。",
       "session_ready_type_a_message_to_start": "会话就绪。输入消息即可开始。",
       "split_down": "向下分屏",
       "split_right": "向右分屏",

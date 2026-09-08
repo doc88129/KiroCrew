@@ -5756,6 +5756,7 @@
       "history_load_failed": "Die Nachrichten dieser Sitzung konnten nicht geladen werden.",
       "model_list": "Modellliste",
       "retry": "Wiederholen",
+      "stop_failed": "Dieser Zug konnte nicht gestoppt werden ({{error}}). Bitte erneut versuchen.",
       "session_ready_type_a_message_to_start": "Sitzung bereit. Geben Sie eine Nachricht ein, um zu beginnen.",
       "split_down": "Nach unten teilen",
       "split_right": "Nach rechts teilen",

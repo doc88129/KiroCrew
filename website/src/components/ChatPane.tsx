@@ -32,7 +32,8 @@ import { usePlanActionMutation, isPlanAction } from '../hooks/usePlanActionMutat
 import { useQueuedMessageActions, queuedSendStash } from '../hooks/useQueuedMessageActions'
 import { useListboxKeyboard } from '../hooks/useListboxKeyboard'
 import { useAppSelector, useAppDispatch, store } from '../store'
-import { PANE_HYDRATE_LIMIT, retireStatelessQuestion, captureStatelessCard, capturePendingAskId, confirmOptimisticSend, selectSlotMessages, selectSlotStreamState, selectComposerBusy, hydrateSlotMessages, appendSlotMessage, requestStop, setAgentSwitchNotice, pendingQuestionFor } from '../store/chatSlice'
+import { PANE_HYDRATE_LIMIT, retireStatelessQuestion, captureStatelessCard, capturePendingAskId, confirmOptimisticSend, selectSlotMessages, selectSlotStreamState, selectComposerBusy, hydrateSlotMessages, appendSlotMessage, requestStop, syncSlotRunningFromServer, setAgentSwitchNotice, pendingQuestionFor } from '../store/chatSlice'
+import { handleStopPress, isEscalationState } from '../utils/stopDebounce'
 import { deriveFollowUpOptions } from '../app-sdk/protocol'
 import { CONTENT_WIDTH, loadChatConfig, type ChatConfig } from '../pages/chat/ChatSettings'
 import { tryQuickSend } from '../lib/quickSend'
@@ -117,6 +118,7 @@ export default function ChatPane({
   // In-pane report of a per-slot setting write (agent / model switch) that did
   // not persist — the shared toast is transient feedback, not the error surface.
   const [switchError, setSwitchError] = useState('')
+  const [stopError, setStopError] = useState('')
   const [agentBtnRect, setAgentBtnRect] = useState<DOMRect | null>(null)
   const [modelBtnRect, setModelBtnRect] = useState<DOMRect | null>(null)
   // Shared stick-to-bottom follow (same FollowController core as the main
@@ -598,7 +600,63 @@ export default function ChatPane({
     })
   }, [input, pendingFiles, busy, slotKey, dispatch, restoreIntoComposer, reportSendFailure])
 
-  const onStop = useCallback(() => { dispatch(requestStop({ slotId: slotKey, force: false })) }, [dispatch, slotKey])
+  // Stop mirrors ChatPage's press protocol (ChatPage.onStop): the first press
+  // is the cooperative cancel, a second press while the slot reports
+  // `soft_pending` (or a stalled `killing`) escalates to the hard kill, and a
+  // double-tap inside the arming window is ignored. Before this the pane sent
+  // a bare soft stop on every press and passed the composer no `stopState`,
+  // so a pending cancel looked exactly like an un-pressed Stop: nothing said
+  // "stopping", nothing warned that the next press discards the queue — the
+  // backend escalates on ANY second press — and the button read as dead
+  // (#9547). `handleStopPress` is the shared decision; the ref is per pane
+  // because the arming window is measured against THIS slot's soft press.
+  const softStopAtRef = useRef(0)
+  const paneStopState = paneSlot?.stop_state
+  // A press that fails on the wire must say so: a silently swallowed
+  // rejection leaves exactly the dead-looking button this fix removes. The
+  // notice clears on the next press, so a retry that succeeds retires it.
+  const stop = useCallback((force: boolean) => {
+    setStopError('')
+    void dispatch(requestStop({ slotId: slotKey, force })).then((res) => {
+      const failure = requestStop.fulfilled.match(res) ? res.payload : null
+      if (failure) setStopError(i18nT('components.chatPane.stop_failed', { error: failure.error }))
+    })
+  }, [dispatch, slotKey])
+  const onStop = useCallback(() => {
+    handleStopPress(
+      isEscalationState(paneStopState),
+      Date.now(),
+      softStopAtRef,
+      () => stop(false),
+      () => stop(true),
+    )
+  }, [stop, paneStopState])
+  // Reconcile this pane's run state from the server's slot snapshot, the way
+  // ChatPage does for the active slot. The reducer only takes the idle
+  // direction for a background slot; the running direction stays with the
+  // live frames.
+  //
+  // Only on an OBSERVED running true->false transition, never on the value a
+  // snapshot happens to hold when the pane mounts: a pane opened mid-turn can
+  // hold a snapshot fetched before the turn started (`running: false`) while
+  // live frames already mark it busy, and settling on that would idle the
+  // composer and finalize an in-flight reply until the next chunk re-promotes
+  // it. The `/stop`-reply settlement covers the stuck-pane press; this path
+  // exists for the turn that ends while the tab misses its `_done`, and that
+  // end is a transition this pane sees.
+  const hasPaneSlot = !!paneSlot
+  const paneRunning = !!paneSlot?.running
+  const paneStopping = !!paneSlot?.stopping
+  const sawRunningRef = useRef(false)
+  useEffect(() => {
+    if (!hasPaneSlot) return
+    if (paneRunning) { sawRunningRef.current = true; return }
+    if (!sawRunningRef.current) return
+    sawRunningRef.current = false
+    dispatch(syncSlotRunningFromServer({ slot: slotKey, running: false, stopping: paneStopping }))
+  }, [dispatch, slotKey, hasPaneSlot, paneRunning, paneStopping])
+  // A different slot in the same pane starts with no observed transition.
+  useEffect(() => { sawRunningRef.current = false }, [slotKey])
   // The same queue-card recipe the single-chat surface runs (#5891), owned once
   // so the two cannot drift again the way #2240 found them drifted.
   //
@@ -834,6 +892,15 @@ export default function ChatPane({
           message={switchError}
           onDismiss={() => setSwitchError('')}
         />
+        {/* No hand-off: the composer draft is untouched by a failed stop; the
+            turn is still running, so the Stop button stays for a retry. */}
+        <ErrorNotice
+          variant="inline"
+          className="mx-4 mt-2"
+          testId="chat-pane-stop-error"
+          message={stopError}
+          onDismiss={() => setStopError('')}
+        />
 
         <ChatInput
           value={input}
@@ -841,6 +908,8 @@ export default function ChatPane({
           onSend={doSend}
           isRunning={busy}
           onStop={onStop}
+          isQueued={streamState === 'stopping' || !!paneSlot?.stopping}
+          stopState={paneStopState}
           autoFocusKey={slotKey}
           agentName={paneAgentName}
           // The chip shows the inherited-default marker; `agentName` stays the

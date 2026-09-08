@@ -5849,6 +5849,7 @@
       "history_load_failed": "Impossibile caricare i messaggi di questa sessione.",
       "model_list": "Elenco dei modelli",
       "retry": "Riprova",
+      "stop_failed": "Impossibile interrompere questo turno ({{error}}). Riprova.",
       "session_ready_type_a_message_to_start": "Sessione pronta. Digita un messaggio per iniziare.",
       "split_down": "Dividi in basso",
       "split_right": "Dividi a destra",

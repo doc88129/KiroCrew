@@ -11,6 +11,7 @@ import reducer, {
   removeThinking,
   setSlotRunning,
   setSlotStopping,
+  settleStopNotRunning,
   startLocalTurn,
   endLocalTurn,
   syncSlotRunningFromServer,
@@ -225,13 +226,83 @@ describe('chatSlice reducers', () => {
       expect(state.pendingTurnSlot).toBeNull()
     })
 
-    it('syncSlotRunningFromServer ignores updates for non-active slots', () => {
+    it('syncSlotRunningFromServer leaves the active mirror alone for a non-active slot', () => {
       let state = active('chat-1')
       state = reducer(state, startLocalTurn('chat-1'))
       const before = state.slotRunning
       state = reducer(state, syncSlotRunningFromServer({ slot: 'chat-2', running: false, stopping: true }))
       expect(state.slotRunning).toBe(before)
       expect(state.slotStopping).toBe(false)
+    })
+
+    /* A background slot (a member DM thread, a split pane) reads its run state
+     * from `slotRun`, which only live frames wrote. A `_done` that never
+     * reached the tab left it busy for good and its Stop button dead (#9547):
+     * the server's snapshot now supplies the idle direction — and ONLY that
+     * direction, since a snapshot racing the ordered live frames must never
+     * promote a pane to busy. */
+    it('syncSlotRunningFromServer idles a background slot the server reports not running', () => {
+      let state = active('chat-1')
+      state = reducer(state, sseChatMessage({ slot: 'chat-2', role: 'chunk', content: 'x', seq: 1 }))
+      expect(state.slotRun['chat-2']?.state).toBe('streaming')
+      expect(state.slotMessages['chat-2']?.at(-1)?.role).toBe('streaming')
+      state = reducer(state, syncSlotRunningFromServer({ slot: 'chat-2', running: false, stopping: false }))
+      expect(state.slotRun['chat-2']?.state).toBe('idle')
+      expect(state.slotRun['chat-2']?.lastChunkSeq).toBeUndefined()
+      // The settlement stands in for the lost `_done`, so the trailing reply
+      // is finalized as that frame would have finalized it.
+      expect(state.slotMessages['chat-2']?.at(-1)?.role).toBe('assistant')
+      expect(state.slotMessages['chat-2']?.at(-1)?.content).toBe('x')
+    })
+
+    it('syncSlotRunningFromServer idles a background slot even when the cancel flag is still set', () => {
+      let state = active('chat-1')
+      state = reducer(state, sseChatMessage({ slot: 'chat-2', role: 'tool', content: '🔧 ls', ts: '2026-01-01T00:00:00Z' }))
+      expect(state.slotRun['chat-2']?.state).toBe('tool_running')
+      state = reducer(state, syncSlotRunningFromServer({ slot: 'chat-2', running: false, stopping: true }))
+      expect(state.slotRun['chat-2']?.state).toBe('idle')
+    })
+
+    it('syncSlotRunningFromServer never promotes a background slot to running', () => {
+      let state = active('chat-1')
+      state = reducer(state, syncSlotRunningFromServer({ slot: 'chat-2', running: true, stopping: false }))
+      expect(state.slotRun['chat-2']).toBeUndefined()
+      state = reducer(state, sseChatMessage({ slot: 'chat-2', role: 'chunk', content: 'x', seq: 1 }))
+      state = reducer(state, sseChatMessage({ slot: 'chat-2', role: '_done', content: '' }))
+      state = reducer(state, syncSlotRunningFromServer({ slot: 'chat-2', running: true, stopping: false }))
+      expect(state.slotRun['chat-2']?.state).toBe('idle')
+    })
+
+    it('settleStopNotRunning idles whichever path holds the slot', () => {
+      let state = active('chat-1')
+      state = reducer(state, sseChatMessage({ slot: 'chat-1', role: 'chunk', content: 'x', seq: 1 }))
+      state = reducer(state, sseChatMessage({ slot: 'chat-2', role: 'chunk', content: 'x', seq: 1 }))
+      state = reducer(state, settleStopNotRunning({ slot: 'chat-2' }))
+      expect(state.slotRun['chat-2']?.state).toBe('idle')
+      expect(state.slotMessages['chat-2']?.at(-1)?.role).toBe('assistant')
+      expect(state.slotState).toBe('streaming')
+      expect(state.messages.at(-1)?.role).toBe('streaming')
+      state = reducer(state, settleStopNotRunning({ slot: 'chat-1' }))
+      expect(state.slotState).toBe('idle')
+      expect(state.slotRunning).toBe(false)
+      expect(state.messages.at(-1)?.role).toBe('assistant')
+    })
+
+    it('settleStopNotRunning does not settle the active slot while a local turn is pending', () => {
+      // Send → Stop before the backend registered the turn → "not running".
+      // Settling here would reopen the composer mid-send and invite a
+      // duplicate turn, so the pending mark wins until the first live frame.
+      let state = active('chat-1')
+      state = reducer(state, startLocalTurn('chat-1'))
+      state = reducer(state, settleStopNotRunning({ slot: 'chat-1' }))
+      expect(state.pendingTurnSlot).toBe('chat-1')
+      expect(state.slotRunning).toBe(true)
+      // Once the pending mark is gone the same answer settles it.
+      state = reducer(state, endLocalTurn('chat-1'))
+      state = reducer(state, setSlotRunning(true))
+      state = reducer(state, settleStopNotRunning({ slot: 'chat-1' }))
+      expect(state.slotRunning).toBe(false)
+      expect(state.slotState).toBe('idle')
     })
   })
 
