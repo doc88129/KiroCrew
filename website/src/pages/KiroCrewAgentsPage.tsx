@@ -310,8 +310,11 @@ function withCurrent(opts: string[], cur: string): string[] {
  * SAME control rather than two copies that drift. Create composes them through
  * `BindingFields`; the editor mounts them individually, one per rail pane.
  */
-export function TemplateField({ label, options, value, onChange }: {
+export function TemplateField({ label, options, value, onChange, editLaterNote }: {
   label: string; options: string[]; value: string; onChange: (v: string) => void
+  /** Create-only reassurance that the pick is not a commitment. The editor never
+   *  sets it: there the fields being edited are themselves the answer. */
+  editLaterNote?: boolean
 }) {
   return (
     <Field label={label} hint={i18nT('pages.kiroCrewAgentsPage.the_agent_definition_it_boots_from_tools_mcp_ser')}>
@@ -322,6 +325,15 @@ export function TemplateField({ label, options, value, onChange }: {
         triggerFallback={i18nT('pages.kiroCrewAgentsPage.select_an_agent_template')}
         aria-label={label}
       />
+      {/* Says "this agent", not "the template": a definition edit customizes THIS
+       *  agent, so copy implying the template itself changes would promise a
+       *  blast radius onto other agents bound to it that does not exist. */}
+      {editLaterNote && (
+        <span className="flex items-start gap-1.5 text-[11.5px] leading-relaxed text-accent">
+          <Sparkles className="lucide-inline h-3 w-3 mt-0.5 shrink-0" aria-hidden="true" />
+          {i18nT('pages.kiroCrewAgentsPage.template_edit_later_note')}
+        </span>
+      )}
     </Field>
   )
 }
@@ -542,7 +554,7 @@ function BindingFields({
 }) {
   return (
     <>
-      <TemplateField label={templateLabel} options={kiroAgentOptions} value={kiroAgent} onChange={setKiroAgent} />
+      <TemplateField label={templateLabel} options={kiroAgentOptions} value={kiroAgent} onChange={setKiroAgent} editLaterNote />
       <WorkspaceField options={workspaceOptions} value={workspace} onChange={setWorkspace} onNewWorkspace={onNewWorkspace} />
       <MemoryStoreField options={memoryStoreOptions} value={memoryStore} onChange={setMemoryStore} />
       {modelOptions && setModel && model !== undefined && (
