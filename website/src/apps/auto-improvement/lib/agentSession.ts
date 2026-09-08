@@ -22,10 +22,19 @@ import { useCallback, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 
 import { api } from '../../../api/client'
-import { readSendReceipt } from '../../../utils/sendDelivery'
+import { sendTurn } from '../../../chat-core/transport/sendTurn'
+import { i18nT } from '../../../i18n/t'
 import { isMissingSlotError } from '../../../utils/thunkError'
 import { useAppDispatch } from '../../../store'
 import { createSlot, deleteSlot, switchSlot } from '../../../store/chatSlice'
+
+/** The user-facing text of a seed that did not start: the core's own
+ *  "could not start" copy, with the server's reason appended when it gave one.
+ *  Never a raw status enum -- this lands in the launch button's error notice. */
+function seedFailureText(reason?: string): string {
+  const base = i18nT('pages.chatPage.could_not_start_a_new_session') as string
+  return reason ? `${base} (${reason})` : base
+}
 
 /** One folder per target repository groups every session from its runs. */
 const FOLDER_PREFIX = 'Auto-Improve - '
@@ -237,26 +246,28 @@ export function useAgentSession(): UseAgentSession {
         // once the POST may have been accepted the agent is starting, and
         // deleting the slot would cancel real work over a metadata hiccup.
         createdSlotKey = slot.key
-        const seedInFlight = api.sendChat(prompt, slot.key)
+        // The chat-core transport owns the receipt contract (`POST /api/chat?ws=1`
+        // RESOLVES on 4xx/5xx, a 200 can still decline with `{ok:false}`, a hung
+        // POST is bounded by its deadline) and never rejects: every outcome is
+        // a receipt status.
+        const seedInFlight = sendTurn({ message: prompt, slot: slot.key })
         createdSlotKey = null
-        const seeded = await seedInFlight
-        // A REFUSAL, not merely a non-2xx: `/api/chat` also declines inside a 200
-        // by answering `{ok:false}`, and a status-only check passed that as a
-        // success -- recording and navigating to exactly the empty session this
-        // guard exists to prevent. `readSendReceipt` owns that distinction for
-        // every send site. An UNREADABLE 2xx receipt deliberately does NOT land
-        // here: the request was accepted, so the seed may be running, and
-        // deleting the slot would cancel real work over a mangled reply.
-        if (seeded && typeof seeded === 'object' && 'ok' in seeded) {
-          const { body, outcome } = await readSendReceipt(seeded as Response)
-          if (outcome === 'refused') {
-            await dispatch(deleteSlot(slot.key)).unwrap().catch(() => {})
-            const reason = typeof body.error === 'string' && body.error
-              ? body.error
-              : `HTTP ${(seeded as Response).status}`
-            throw new Error(`could not seed the session (${reason})`)
-          }
+        const receipt = await seedInFlight
+        // Receipt policy for a seed (the statuses' meanings live on
+        // `SendReceiptStatus` in chat-core; this is only what THIS caller does):
+        // - `refused`: the server said no, so nothing is running and the empty
+        //   slot is torn down -- recording and navigating to it is exactly the
+        //   empty session this guard exists to prevent.
+        // - `transport-error`: no response, delivery indeterminate. The slot is
+        //   KEPT (a possibly-running seed must not be cancelled) and the failure
+        //   is reported, as the old bare fetch did when it rejected.
+        // - `unknown` / `response-late`: accepted, or accepted for all we know;
+        //   proceed as accepted (as before for an unreadable 2xx).
+        if (receipt.status === 'refused') {
+          await dispatch(deleteSlot(slot.key)).unwrap().catch(() => {})
+          throw new Error(seedFailureText(receipt.reason))
         }
+        if (receipt.status === 'transport-error') throw new Error(seedFailureText())
         const record = await saveRecord(key, {
           slot_key: slot.key,
           folder_id: folderId,

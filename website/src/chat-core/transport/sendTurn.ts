@@ -39,8 +39,16 @@ export const SEND_ABORT_MS = 10_000
  *                        optimistic row pending to avoid a duplicate, while a
  *                        caller that has already destroyed the only visible
  *                        copy may choose to recover it.
- * - `transport-error` -- the fetch itself rejected (offline, DNS, CORS). The
- *                        send never left, so restore-and-report is safe.
+ * - `transport-error` -- the fetch itself rejected without a response. Usually
+ *                        the request never left (offline, DNS, CORS), but a
+ *                        connection reset AFTER the server took the POST rejects
+ *                        the same way, so delivery is INDETERMINATE -- the
+ *                        request may have started a turn. What to do is
+ *                        call-site policy: a composer restores the text and
+ *                        reports (a visible duplicate beats a silent loss); a
+ *                        caller whose retry would destroy or duplicate work
+ *                        (a seeder deleting its slot) must not treat this as
+ *                        proof that nothing ran.
  */
 export type SendReceiptStatus =
   | 'dispatched'
