@@ -11,6 +11,8 @@
 // string templates, so an id containing `&` or `#` cannot smuggle a parameter.
 
 import { toApiError } from '../../api/apiError'
+import { sendTurn, type SendReceipt } from '../../chat-core/transport/sendTurn'
+import { i18nT } from '../../i18n/t'
 import type {
   AddProjectResponse, ChatSlotResponse, DeleteCommentResponse,
   DetectDevServerResponse, DevServerStartResponse, HealthResponse, HistoryResponse,
@@ -216,14 +218,9 @@ function slotDetailUrl(key: string): string {
   return CHAT_SLOTS + '/' + encodeURIComponent(key)
 }
 
-/**
- * `ws=1` makes the host answer with JSON. Without it the reply is an SSE stream,
- * and the parse error used to be caught and "recovered" by opening a NEW ad-hoc
- * chat — so one request produced two sessions and the app's own per-app session
- * was bypassed.
- */
-const CHAT_SEND = '/api/chat' + '?' + new URLSearchParams({ ws: '1' }).toString()
-
+/** Slot and transcript endpoints only. The SEND goes through the chat-core
+ *  transport (`sendChatMessage` below), which owns `?ws=1`, the deadline and
+ *  the receipt contract. */
 async function chatApi<T = unknown>(url: string, method: string, body?: unknown): Promise<T> {
   const r = await fetch(url, {
     method,
@@ -232,9 +229,11 @@ async function chatApi<T = unknown>(url: string, method: string, body?: unknown)
   })
   if (!r.ok) throw await toApiError(r)
   const t = await r.text()
-  // POST /api/chat answers with an SSE STREAM unless ?ws=1 is set, so the body can
-  // legitimately be `data: {...}` rather than JSON. Parsing that threw, and the
-  // throw is what diverted a request into a brand-new ad-hoc chat.
+  // A non-JSON 2xx body is tolerated rather than thrown: when the send still
+  // went through this helper, the SSE stream the bare endpoint answers with
+  // parsed as a throw and that throw diverted a request into a brand-new ad-hoc
+  // chat. The send no longer comes here, but the endpoints that do are read as
+  // leniently as before.
   try { return (t ? JSON.parse(t) : null) as T } catch { return { ok: true, raw: t } as T }
 }
 
@@ -341,9 +340,27 @@ export async function readSlotTranscript(
   }
 }
 
-/** Send one turn into a slot. */
-export function sendChatMessage(message: string, slot: string): Promise<unknown> {
-  return chatApi(CHAT_SEND, 'POST', { message, slot, agent: '' })
+/**
+ * Send one turn into a slot through the chat-core transport (the dashboard's
+ * own wire: this app runs in the dashboard bundle and sends as the dashboard
+ * does). Receipt policy for a sender with no composer to restore into:
+ *
+ * - `dispatched` / `queued` resolve with the receipt.
+ * - `refused` REJECTS. The old helper only threw on a non-2xx status, so a
+ *   `{ok:false}` refusal inside a 200 -- the shape `/api/chat` uses to decline
+ *   -- resolved as a success and the request was marked delivered.
+ * - `transport-error` rejects, as the bare fetch always did.
+ * - `unknown` / `response-late` RESOLVE: the request was or may have been
+ *   accepted, and `verifyDelivery` settles it against the session itself. The
+ *   old helper resolved a non-JSON 2xx as `{ok:true}` for the same reason, but
+ *   by accident of a parse fallback rather than by reading the receipt.
+ */
+export async function sendChatMessage(message: string, slot: string): Promise<SendReceipt> {
+  const receipt = await sendTurn({ message, slot })
+  if (receipt.status === 'refused' || receipt.status === 'transport-error') {
+    throw new Error(receipt.reason || (i18nT('pages.chatPage.send_failed') as string))
+  }
+  return receipt
 }
 
 /** Deep link into the Chat tab at a given slot. */

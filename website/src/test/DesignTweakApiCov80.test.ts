@@ -397,31 +397,49 @@ describe('createChatSlot', () => {
   })
 })
 
-describe('sendChatMessage', () => {
-  it('POSTs to /api/chat?ws=1 with message, slot, and agent', async () => {
+describe('sendChatMessage — the chat-core transport receipt decides', () => {
+  it('POSTs to /api/chat?ws=1 with message and slot over the dashboard wire', async () => {
     const fetchMock = vi.fn(async () => jsonResponse({ ok: true }))
     vi.stubGlobal('fetch', fetchMock)
 
-    await sendChatMessage('apply edits', 'dt-slot')
+    const receipt = await sendChatMessage('apply edits', 'dt-slot')
     const [url, init] = fetchMock.mock.calls[0] as [string, RequestInit]
     expect(url).toBe('/api/chat?ws=1')
     expect(init.method).toBe('POST')
-    expect(JSON.parse(String(init.body))).toEqual({
-      message: 'apply edits',
-      slot: 'dt-slot',
-      agent: '',
-    })
+    // `agent` is no longer spelled out: the server default IS the empty agent.
+    expect(JSON.parse(String(init.body))).toEqual({ message: 'apply edits', slot: 'dt-slot' })
+    expect(receipt.status).toBe('dispatched')
   })
 
-  it('tolerates non-JSON response bodies from SSE fallback', async () => {
-    // Without ?ws=1 the host returns SSE — the chatApi helper must not throw.
-    const fetchMock = vi.fn(async () => new Response('data: {"ok":true}', { status: 200 }))
-    vi.stubGlobal('fetch', fetchMock)
+  it('resolves `queued` when the slot is busy — the server took custody', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => jsonResponse({ ok: true, queued: true })))
+    const receipt = await sendChatMessage('apply edits', 'dt-slot')
+    expect(receipt.status).toBe('queued')
+  })
 
-    const result = await sendChatMessage('test', 'slot')
-    // Falls through JSON.parse catch to a fallback object.
-    expect(result).toHaveProperty('ok', true)
-    expect(result).toHaveProperty('raw', 'data: {"ok":true}')
+  it('rejects a {ok:false} refusal inside a 200 with the server reason', async () => {
+    // The old helper only threw on a non-2xx, so this shape was marked delivered.
+    vi.stubGlobal('fetch', vi.fn(async () => jsonResponse({ ok: false, error: 'slot agent mismatch' })))
+    await expect(sendChatMessage('apply edits', 'dt-slot')).rejects.toThrow(/slot agent mismatch/)
+  })
+
+  it('rejects a non-2xx status, as before', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => new Response('gateway down', { status: 503 })))
+    await expect(sendChatMessage('apply edits', 'dt-slot')).rejects.toThrow()
+  })
+
+  it('rejects when the fetch itself fails, as before', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => { throw new TypeError('Failed to fetch') }))
+    await expect(sendChatMessage('apply edits', 'dt-slot')).rejects.toThrow()
+  })
+
+  it('resolves an accepted 2xx whose body is not JSON — indeterminate, never a refusal', async () => {
+    // The receipt is unreadable but the request WAS accepted; `verifyDelivery`
+    // settles it against the session. The old helper resolved this by a parse
+    // fallback; the transport resolves it by reading the receipt.
+    vi.stubGlobal('fetch', vi.fn(async () => new Response('data: {"ok":true}', { status: 200 })))
+    const receipt = await sendChatMessage('test', 'slot')
+    expect(receipt.status).toBe('unknown')
   })
 })
 
