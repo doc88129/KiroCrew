@@ -1533,15 +1533,19 @@ already listening on **this host's own loopback**. It is the one transport with
 
 Opt-in and **off by default** (`instances.allow_loopback_transport`, §16.1).
 
-**What it is for.** Two gateways on one host — a second `kirocrew gateway
---port 5477` beside the default, or a `kirocrew pod` serving an isolated
-`KIROCREW_HOME` — previously had no way to appear in each other's switcher.
-`CONNECTION_METHODS` held only `ssh` and `ssm`, and neither can name this host:
-an ssh self-connect fails host-key verification by design, and SSM requires a
-managed node plus a local plugin. A pod consuming this transport is how the
-instances feature becomes verifiable against a real gateway at all, which is
-the `Refs #8175` link — but the capability is not a test fixture: it is what a
-two-gateway host needs.
+**What it is for.** A second gateway on one host — `kirocrew gateway --port
+5477` beside the default — has no other way to appear in the switcher.
+`CONNECTION_METHODS` holds `ssh` and `ssm`, and neither can name this host: an
+ssh self-connect fails host-key verification by design, and SSM requires a
+managed node plus a local plugin.
+
+**The destination must share this hub's data home.** The mint reads
+`run/gateway-<port>.secret` and the pid sidecar from `config_dir()`, which
+resolves per process from `KIROCREW_HOME`. A gateway in the SAME data home
+writes both where this hub reads them; one running under an ISOLATED
+`KIROCREW_HOME` — `kirocrew pod`, or a second install — writes them into its own
+home, so this hub finds no credential and no attributable listener, and the mint
+refuses rather than sending anything. Reach such a gateway over `ssh`.
 
 | Method | Tunnel | Destination | Mint path |
 |--------|--------|-------------|-----------|
@@ -1574,18 +1578,28 @@ unreadable config refuses (fail closed — absence of config is not consent).
 
 `loopback_host` (registry field, default `127.0.0.1`) is checked by
 `validation.validate_loopback_host`, which is a **parse, not a pattern**:
-`ipaddress.IPv4Address(value).is_loopback`. A regex over dotted quads would be a
+`ipaddress.IPv4Address(value)`, then `.is_loopback` and equality against
+`127.0.0.1`. A regex over dotted quads would be a
 spelling chase — the octal, short-form and IPv4-mapped-IPv6 spellings all have to
 be refused, and each one closed by hand narrows an unbounded set by exactly one.
 Parsing answers the actual question once, and the function returns the CANONICAL
 form (`str(IPv4Address(...))`), so a value carrying a trailing newline cannot
 reach a caller even in principle.
 
-Three refusals carry the weight:
+Four refusals carry the weight:
 
 - **Every hostname form, `localhost` included.** A name is resolved outside this
   process — `/etc/hosts`, NSS, a resolver — so accepting one would put "is this
   destination local" in the hands of whoever edits that mapping.
+- **Every other address in `127.0.0.0/8`, `127.0.0.2` included.** The mint's
+  authorization is `port_is_gateway_owned`, which attributes the listener on a
+  PORT and is address-agnostic, while the request goes to an (address, port)
+  pair. Those are the same question only on the address the gateway binds, so
+  another local process holding `127.0.0.2:P` while a real gateway holds
+  `127.0.0.1:P` would satisfy the proof and be handed the secret. The accepted
+  set is the set the proof covers; widening it belongs with an (address,
+  port)-granular proof. Enforced twice — here, and again at the send site in
+  `local_token_mint.mint_loopback_token`, before the credential is read.
 - **Every non-loopback address**, RFC-1918 and link-local included. This
   transport's whole safety argument is that the destination cannot be off-host;
   reaching a network peer is what `ssh` and `ssm` are for.
@@ -1595,10 +1609,10 @@ Three refusals carry the weight:
   is the family this package speaks; admitting `::1` would mean bracket-quoting
   a security-sensitive URL builder for no real destination.
 
-The exercised boundary, asserted by test: **accepted** — `127.0.0.1`,
-`127.0.0.2`, `127.1.2.3`, empty (→ default), surrounding whitespace;
-**refused** — `localhost`, `LOCALHOST`, `kirocrew.localhost`, `::1`,
-`0:0:0:0:0:0:0:1`, `::ffff:127.0.0.1`, `0.0.0.0`, `10.0.0.5`, `172.16.0.1`,
+The exercised boundary, asserted by test: **accepted** — `127.0.0.1`, empty (→
+default), surrounding whitespace; **refused** — `localhost`, `LOCALHOST`,
+`kirocrew.localhost`, `::1`, `0:0:0:0:0:0:0:1`, `::ffff:127.0.0.1`, `0.0.0.0`,
+`127.0.0.2`, `127.1.2.3`, `127.255.255.254`, `10.0.0.5`, `172.16.0.1`,
 `192.168.1.1`, `169.254.169.254`, `8.8.8.8`, `127.1`, `0177.0.0.1`,
 `127.0.0.1:7904`, `127.0.0.1%eth0`, `-oProxyCommand=x`, `127.0.0.256`.
 
@@ -1677,7 +1691,7 @@ Consequences worth stating:
 ### 16.5 Security posture
 
 - **Nothing is exposed.** No listener is created, no port is bound, no forward
-  exists; the transport only DIALS a port on `127.0.0.0/8`.
+  exists; the transport only DIALS a port on `127.0.0.1`.
 - **No new framing privilege.** The dashboard CSP already carries loopback
   origins in `frame-src` unconditionally for the Web Preview panel (§2), so a
   pane on a loopback port is not a new capability — only a new reason to have

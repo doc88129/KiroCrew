@@ -190,8 +190,8 @@ async def _probe_local_forward(local_port: int, host: str = _LOOPBACK) -> bool:
     """Return True if something accepts a TCP connect on the local forward.
 
     *host* is the forward's own loopback address for ssh/ssm; the loopback
-    transport passes its validated destination address, which may be another
-    address in ``127.0.0.0/8``.
+    transport passes its validated destination address, which is
+    ``127.0.0.1`` — the only address that validation accepts.
     """
     if not local_port:
         return False

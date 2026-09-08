@@ -1114,7 +1114,14 @@ BENIGN_SPAWNS: frozenset[str] = frozenset(
         "git_divergence.py::count_divergence_sync",
         "instances/diagnostics.py::_run_ok",
         "instances/diagnostics.py::_run_stdout",
-        "instances/ssh_tunnel_manager.py::start",
+        # The SSH forwarder child (`ssh -N -L <local>:<host>:<remote> …`), held
+        # in its own method so the tunnel's spawn is one auditable site and its
+        # failure is read off the child's exit alone. Fixed list-argv, no shell:
+        # every component is validated off the operator's own instance record
+        # (host, ports, remote bin), never agent input. Must NOT be sandboxed —
+        # the child exists to use the operator's ssh agent, keys and
+        # known_hosts, which a scrubbed-env sandbox strips.
+        "instances/ssh_tunnel_manager.py::_spawn_child",
         "instances/token_mint.py::mint_remote_token",
         "instances/token_mint.py::run_remote_kirocrew",
         # The iMessage bridge child (`<cli_path> rpc [--db-path <p>]`). Fixed

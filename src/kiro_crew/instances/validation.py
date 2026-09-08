@@ -94,19 +94,29 @@ class LoopbackValidationError(ValueError):
 
 
 def validate_loopback_host(loopback_host: str) -> str:
-    """Return *loopback_host* if it names this host's own loopback, else raise.
+    """Return *loopback_host* if it is this host's own loopback, else raise.
 
     Empty resolves to :data:`DEFAULT_LOOPBACK_HOST`, so a record that omits the
     field addresses ``127.0.0.1``.
 
-    Accepts only a NUMERIC IPv4 loopback literal (``127.0.0.0/8``). Three
-    refusals carry the weight:
+    Accepts exactly one destination, the NUMERIC literal
+    :data:`DEFAULT_LOOPBACK_HOST`. Four refusals carry the weight:
 
     * **Every hostname form, ``localhost`` included.** A name is resolved by
       something outside this process -- ``/etc/hosts``, NSS, a resolver -- so
       accepting one would put "is this destination local" in the hands of
       whoever can edit that mapping. ``ipaddress`` parses literals only, which
       is why the check is a parse rather than a pattern.
+    * **Every other address in ``127.0.0.0/8``**, ``127.0.0.2`` included. The
+      credential the loopback mint sends is authorized by an ownership proof
+      that attributes the listener on a PORT
+      (:func:`kiro_crew.dashboard.port_resolution.port_is_gateway_owned`, which
+      is address-agnostic), while the request goes to an (address, port) pair.
+      An address this gateway does not bind is therefore a destination the proof
+      cannot speak for: another local process holding ``127.0.0.2:P`` while a
+      real gateway holds ``127.0.0.1:P`` satisfies the port proof and would
+      receive the secret. The accepted set is the set the proof covers, and
+      widening it belongs with an (address, port)-granular proof.
     * **Every non-loopback address**, private RFC-1918 ranges and link-local
       included. This transport's entire safety argument is that the destination
       cannot be off-host; ``10.0.0.5`` is a network peer, and reaching one is
@@ -127,16 +137,25 @@ def validate_loopback_host(loopback_host: str) -> str:
         addr = ipaddress.IPv4Address(host)
     except ipaddress.AddressValueError as e:
         raise LoopbackValidationError(
-            f"invalid loopback_host {host!r}: must be a numeric IPv4 loopback "
-            f"address such as {DEFAULT_LOOPBACK_HOST} (a hostname is not "
-            f"accepted, because resolving one would decide off-host reachability "
-            f"outside this gateway)"
+            f"invalid loopback_host {host!r}: must be the numeric IPv4 address "
+            f"{DEFAULT_LOOPBACK_HOST} (a hostname is not accepted, because "
+            f"resolving one would decide off-host reachability outside this "
+            f"gateway)"
         ) from e
     if not addr.is_loopback:
         raise LoopbackValidationError(
             f"invalid loopback_host {host!r}: not a loopback address. The "
             f"loopback transport reaches a gateway on this same host; use the "
             f"ssh or ssm transport for anything reachable over a network."
+        )
+    if str(addr) != DEFAULT_LOOPBACK_HOST:
+        raise LoopbackValidationError(
+            f"invalid loopback_host {host!r}: only {DEFAULT_LOOPBACK_HOST} is "
+            f"accepted. The mint proves who holds the destination PORT, not who "
+            f"holds an address on it, so sending this gateway's internal secret "
+            f"to another loopback address would reach a listener nothing "
+            f"attributed. Run the destination gateway on "
+            f"{DEFAULT_LOOPBACK_HOST}, or use the ssh transport."
         )
     return str(addr)
 
