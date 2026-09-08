@@ -7306,7 +7306,8 @@
       "will_be_removed_on_save": "Sera supprimé à l'enregistrement."
     },
     "selectionToolbar": {
-      "ask": "Demander dans le Chat annexe",
+      "ask": "Demander à ce sujet",
+      "ask_hint": "Ouvre le Chat annexe avec la sélection citée — rien n’est envoyé avant que tu n’envoies, et la discussion principale reste intacte",
       "copy": "Copier",
       "quote": "Citer"
     },
@@ -9457,6 +9458,7 @@
         "ask_a_side_question_2": "Poser une question annexe…",
         "ask_a_side_question_main_agent_keeps_working": "Posez une question annexe sans interrompre l’exécution active. Rien ici n’est enregistré dans la conversation.",
         "context_from": "Contexte de",
+        "off_record_marker": "Chat annexe · non enregistré dans la discussion",
         "context_only_tools_unavailable": "Contexte uniquement · Les outils et les MCP ne sont pas disponibles ici. Utilisez la conversation principale pour agir.",
         "question_too_long": "Question trop longue — réduis-la à moins d'environ {{max}} caractères (la tienne : {{current}})",
         "queue_cancel_failed": "Impossible d'annuler cette question en file d'attente",
@@ -14445,6 +14447,7 @@
       "patrol_last_wake_ago": "Dernier réveil {{when}}",
       "patrol_none": "Aucune patrouille planifiée.",
       "patrol_error": "Impossible de charger l'état de patrouille de ce membre.",
+      "side_chat_draft_waiting": "Une question non envoyée attend dans le Chat annexe de ce membre",
       "patrol_error_roster": "Impossible de charger l'état de patrouille de la liste.",
       "patrol_badge": "En patrouille · {{cycle}}",
       "patrol_badge_stopped": "Patrouille arrêtée",

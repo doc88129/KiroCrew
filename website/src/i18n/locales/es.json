@@ -7306,7 +7306,8 @@
       "will_be_removed_on_save": "Se eliminará al guardar."
     },
     "selectionToolbar": {
-      "ask": "Preguntar en Chat lateral",
+      "ask": "Preguntar sobre esto",
+      "ask_hint": "Abre el Chat lateral con la selección citada: no se envía nada hasta que lo envíes, y el chat principal no se toca",
       "copy": "Copiar",
       "quote": "Citar"
     },
@@ -9457,6 +9458,7 @@
         "ask_a_side_question_2": "Hacer una pregunta paralela…",
         "ask_a_side_question_main_agent_keeps_working": "Haz una pregunta paralela sin interrumpir la ejecución activa. Nada de esto se guarda en el chat.",
         "context_from": "Contexto de",
+        "off_record_marker": "Chat lateral · no se guarda en la conversación",
         "context_only_tools_unavailable": "Solo contexto · Aquí no están disponibles las herramientas ni los MCP. Usa el chat principal para realizar acciones.",
         "question_too_long": "Pregunta demasiado larga — redúcela a menos de unos {{max}} caracteres (la tuya: {{current}})",
         "queue_cancel_failed": "No se pudo cancelar esa pregunta en cola",
@@ -14445,6 +14447,7 @@
       "patrol_last_wake_ago": "Último despertar {{when}}",
       "patrol_none": "No hay patrulla programada.",
       "patrol_error": "No se pudo cargar el estado de patrulla de este miembro.",
+      "side_chat_draft_waiting": "Hay una pregunta sin enviar en el Chat lateral de este miembro",
       "patrol_error_roster": "No se pudo cargar el estado de patrulla de la lista.",
       "patrol_badge": "En patrulla · {{cycle}}",
       "patrol_badge_stopped": "Patrulla detenida",

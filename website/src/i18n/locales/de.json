@@ -7196,7 +7196,8 @@
       "will_be_removed_on_save": "Wird beim Speichern entfernt."
     },
     "selectionToolbar": {
-      "ask": "Im Seitenchat fragen",
+      "ask": "Hierzu fragen",
+      "ask_hint": "Öffnet den Seitenchat mit der Auswahl als Zitat — nichts wird gesendet, bis du sendest, und der Hauptchat bleibt unberührt",
       "copy": "Kopieren",
       "quote": "Zitieren"
     },
@@ -9327,6 +9328,7 @@
         "ask_a_side_question_2": "Nebenfrage stellen…",
         "ask_a_side_question_main_agent_keeps_working": "Stelle eine Nebenfrage, ohne die aktive Ausführung zu unterbrechen. Nichts davon wird im Chat gespeichert.",
         "context_from": "Kontext von",
+        "off_record_marker": "Seitenchat · wird nicht im Gespräch gespeichert",
         "context_only_tools_unavailable": "Nur Kontext · Tools und MCPs sind hier nicht verfügbar. Nutze den Hauptchat, um Aktionen auszuführen.",
         "question_too_long": "Frage zu lang — kürze sie auf unter etwa {{max}} Zeichen (deine: {{current}})",
         "queue_cancel_failed": "Diese Frage in der Warteschlange konnte nicht abgebrochen werden",
@@ -14260,6 +14262,7 @@
       "patrol_last_wake_ago": "Letztes Aufwecken {{when}}",
       "patrol_none": "Keine Patrouille geplant.",
       "patrol_error": "Patrouillenstatus dieses Mitglieds konnte nicht geladen werden.",
+      "side_chat_draft_waiting": "Im Seitenchat dieses Mitglieds wartet eine nicht gesendete Frage",
       "patrol_error_roster": "Patrouillenstatus für die Liste konnte nicht geladen werden.",
       "patrol_badge": "Auf Patrouille · {{cycle}}",
       "patrol_badge_stopped": "Patrouille gestoppt",
