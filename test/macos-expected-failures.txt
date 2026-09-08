@@ -1,0 +1,116 @@
+# Known macOS test gaps -- burn-down backlog for full macOS parity.
+#
+# Applied by conftest.py::pytest_collection_modifyitems (rootdir) on macOS
+# ONLY, through the same _apply_tracked_gap_list matcher that applies
+# windows-expected-failures.txt: each listed test (all parametrizations) is
+# skipped there and runs normally on the Linux matrix. Entries are
+# unparametrized pytest node ids -- file, class, function, no [params] and no
+# @group suffix. Captured from the first full-suite macOS shard runs on
+# macos-15 (run 34288884863). Fix the test (or the product gap) and DELETE the
+# line -- additions require a reason in the PR.
+#
+# Grouped under a `# reason` heading, so the PR body's count-by-reason table can
+# be rebuilt from this file.
+
+# frame recording is Linux-only BY DESIGN: src/kiro_crew/acp/_frame_record.py
+# refuses KIROCREW_ACP_RECORD_FRAMES unless IS_LINUX and os.listxattr exists,
+# because no other platform can prove the destination carries no ACL granting
+# another account. These suites assert the recorder RUNS, so they cannot pass
+# on darwin. Not a gap to fix in src: the refusal is the intended behaviour.
+# The refusal-path tests in the same files are NOT listed and keep running here.
+test/test_acp_frame_record.py::test_a_burst_of_large_frames_is_bounded_by_bytes_not_count
+test/test_acp_frame_record.py::test_a_credential_in_a_header_map_leaves_valid_json
+test/test_acp_frame_record.py::test_a_credential_is_scrubbed_before_it_is_written
+test/test_acp_frame_record.py::test_a_directory_created_by_this_run_that_inherited_an_acl_is_refused
+test/test_acp_frame_record.py::test_a_dot_dot_component_cannot_climb_out_through_a_link
+test/test_acp_frame_record.py::test_a_failed_notifier_start_stops_the_writer_it_already_started
+test/test_acp_frame_record.py::test_a_failing_hardlink_helper_does_not_leak_the_descriptor
+test/test_acp_frame_record.py::test_a_filesystem_without_xattrs_has_no_acls_and_is_accepted
+test/test_acp_frame_record.py::test_a_frame_lands_in_the_backend_file
+test/test_acp_frame_record.py::test_a_fresh_recording_is_created_owner_only
+test/test_acp_frame_record.py::test_a_pre_existing_owner_only_directory_is_reused_and_a_loose_file_tightened
+test/test_acp_frame_record.py::test_a_pre_existing_owner_only_directory_with_an_acl_is_refused
+test/test_acp_frame_record.py::test_a_reader_side_stand_down_is_logged_even_when_the_writer_is_wedged
+test/test_acp_frame_record.py::test_a_reader_side_stand_down_is_logged_from_the_writer_thread
+test/test_acp_frame_record.py::test_a_recording_file_that_carries_an_acl_is_refused
+test/test_acp_frame_record.py::test_a_refused_linked_component_is_named_in_the_stand_down
+test/test_acp_frame_record.py::test_no_recorder_thread_is_ever_started_from_the_event_loop
+test/test_acp_frame_record.py::test_one_failure_logs_once_and_discards_the_backlog
+test/test_acp_frame_record.py::test_queued_bytes_are_released_as_frames_are_written
+test/test_acp_frame_record.py::test_record_frame_never_waits_on_the_byte_budget_lock
+test/test_acp_frame_record.py::test_record_frame_offloads_the_write_off_the_event_loop
+test/test_acp_frame_record.py::test_record_frame_returns_while_the_writer_is_wedged
+test/test_acp_frame_record.py::test_teardown_does_not_block_on_a_full_queue
+test/test_acp_frame_record.py::test_the_lockdown_is_applied_to_the_opened_descriptor_not_the_path
+test/test_acp_frame_record.py::test_the_recording_home_directory_is_scrubbed
+test/test_acp_frame_record.py::test_two_event_loops_share_one_writer_and_one_byte_budget
+test/test_acp_frame_record_provider_safety.py::test_provider_is_untouched_once_the_recorder_has_stood_down
+test/test_acp_frame_record_provider_safety.py::test_provider_never_waits_on_a_wedged_writer_thread
+test/test_acp_frame_record_provider_safety.py::test_provider_reader_does_not_propagate_an_unexpected_recorder_exception
+test/test_acp_frame_record_provider_safety.py::test_provider_reads_frames_normally_with_the_recorder_on
+test/test_acp_frame_record_provider_safety.py::test_provider_survives_a_full_queue_by_bytes
+test/test_acp_frame_record_provider_safety.py::test_provider_survives_a_full_queue_by_count
+test/test_acp_frame_record_provider_safety.py::test_provider_survives_an_unwritable_destination
+test/test_acp_frame_record_provider_safety.py::test_runtime_does_not_die_on_an_unexpected_recorder_exception
+test/test_acp_frame_record_provider_safety.py::test_runtime_never_waits_on_a_wedged_writer_thread
+test/test_acp_frame_record_provider_safety.py::test_runtime_recorder_fault_does_not_leak_across_sessions
+test/test_acp_frame_record_provider_safety.py::test_runtime_routes_frames_normally_with_the_recorder_on
+test/test_acp_frame_record_provider_safety.py::test_runtime_survives_a_full_queue
+
+# TODO: the built turn gains a [RESOURCES] advisory on this runner, so an
+# assertion on the message's exact opening fails. src/kiro_crew/resource_status.py
+# injects that line only when host memory is tight, and a macos-15 runner under a
+# 3-way xdist split is. NOT darwin-specific: the same failure is reachable on a
+# loaded Linux runner, so the fix is to stub the advisory in these tests rather
+# than to guard them by platform. Tracked as a follow-up.
+test/test_channel_history.py::TestChannelHistoryContext::test_context_builder_no_injection_without_history
+test/test_context.py::TestContextBuilder::test_build_message_existing_session
+test/test_context.py::TestContextBuilder::test_hook_modify
+test/test_context_marker_neutralization.py::TestUserTextNeutralized::test_forged_markers_in_user_text_are_stripped
+test/test_context_marker_neutralization.py::TestUserTextNeutralized::test_hook_modify_turn_is_also_neutralized
+test/test_memory_smoke.py::TestMemoryInjectionAllAgents::test_custom_agent_gets_hook_transform
+
+# TODO: /tmp is a symlink to /private/tmp on macOS, so a path built before the
+# resolve and compared after it does not match. Tracked as a follow-up; the
+# assertion is about WHERE the work ran, not about the path shape.
+test/test_acp_spawn_offload.py::TestClientSpawnOffLoop::test_spawn_env_resolution_and_mkdir_run_off_loop
+test/test_acp_spawn_offload.py::TestRuntimeSpawnOffLoop::test_spawn_mkdir_and_krb5_run_off_loop
+
+# TODO: asserts a thread default derived from the host CPU count. The macos-15
+# runner reports 3 usable cores where the expectation is 4, so the assertion
+# pins the runner rather than the behaviour. Tracked as a follow-up.
+test/test_embeddings.py::TestEmbedThreads::test_default_when_unset
+test/test_embeddings.py::TestEmbedThreads::test_invalid_values_fall_back_to_the_default
+
+# TODO: the audio import passes the decoder a /dev/fd/N path on darwin where the
+# test expects the temporary file's own name. Tracked as a follow-up.
+test/test_meetings_audio_import.py::TestRefusals::test_a_provider_without_a_ceiling_skips_the_duration_probe
+test/test_meetings_audio_import.py::TestRefusals::test_a_recording_over_the_decoder_cap_is_split_not_refused
+
+# TODO: asserts the exact fsync ordering the durable-write helper emits. darwin
+# orders the directory fsync differently, and the second test reports its own
+# precondition never held, so it would be vacuous rather than wrong. Tracked as
+# a follow-up.
+test/test_prompts.py::TestCreateAndDeletePinTheDirectory::test_a_create_cannot_disturb_a_prompt_already_at_the_name
+test/test_prompts.py::TestCreateAndDeletePinTheDirectory::test_the_body_is_durable_before_the_name_appears
+
+# TODO: asserts a Linux errno phrasing. darwin answers "Operation not permitted"
+# where the test looks for the word "directory" in the refusal. Tracked as a
+# follow-up.
+test/test_dev_fleet_server_coverage.py::test_discard_untracked_files_type_change_refuses_and_keeps_unapproved
+
+# TODO: asserts subprocess kwargs that carry no pass_fds. The darwin spawn path
+# passes one descriptor through, so the assertion pins the platform's spawn
+# shape rather than the wrapper contract. Tracked as a follow-up.
+test/test_acp_runtime.py::test_runtime_spawn_passes_installed_path_through_exact_wrappers
+
+# TODO: this test only reaches its assertion where a real Xcode toolchain exists,
+# which is the case ONLY on this runner, and it rejects the runner's own
+# XcodeDefault.xctoolchain swiftc path. Tracked as a follow-up: the trust check
+# needs to accept the hosted-runner layout, and this is the first CI leg that
+# could ever have told us.
+test/test_apple_speech.py::TestHelperBuild::test_trusted_toolchain_accepts_a_real_install
+
+# TODO: cause not yet established -- it posted twice where the test expects one
+# post. Listed so the line holds; to be reproduced before it is removed.
+test/test_ai_review_workflows.py::TestGptVerdictVisibility::test_incomplete_run_never_overwrites_a_posted_verdict

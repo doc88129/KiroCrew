@@ -1,0 +1,20 @@
+# Test files NOT collected on macOS -- one bare filename per line, relative
+# to this directory. Blank lines and #-comments are ignored.
+#
+# Read by test/conftest.py, which builds `collect_ignore` from it. Same file-driven
+# mechanism as windows-collect-ignore.txt, deliberately: one shape for both OS lines
+# rather than an inline literal here and a file there.
+#
+# PREFER macos-expected-failures.txt. A whole-file exclusion is the blunt tool and
+# belongs here only when the file cannot be COLLECTED on darwin -- an import-time or
+# fixture-time failure, which a skip marker cannot prevent. Everything else is a node
+# id in the expected-failures list, where the report names it.
+#
+# macOS is POSIX, so the POSIX-only-by-design reasons that fill the Windows list
+# (AF_UNIX, PGID, PTY, mode bits, symlink privilege) do not apply. This list is
+# expected to stay short or empty.
+#
+# Empty today: the first full-suite macOS shard runs (run 34288884863) needed no
+# file-level exclusion. Every failure was addressable as a node id in
+# macos-expected-failures.txt, including the two frame-recording suites, whose
+# refusal-path tests still pass here and are deliberately kept running.

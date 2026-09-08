@@ -126,13 +126,38 @@ Current status:
   `.github/scripts/test-windows-installer.ps1` can start the just-installed
   bundled interpreter against an isolated data home and require `/api/ready`
   within 30 seconds, covering both the packaged caches and the full gateway
-  handoff — but it is a **real-artifact check, not a CI gate**: the installer
-  job builds the NSIS package over a synthetic backend stub, so it has no
-  bundled interpreter to start and runs the script with
-  `-SkipGatewayValidation`. What CI enforces on every push is the native
-  installer's performance ceiling and its install-location contract; run the
-  script without that switch against a genuine backend payload to exercise the
-  gateway handoff.
+  handoff — but in `build.yml` it is a **real-artifact check, not a per-PR
+  gate**: that installer job builds the NSIS package over a synthetic backend
+  stub, so it has no bundled interpreter to start and runs the script with
+  `-SkipGatewayValidation`. What `build.yml` enforces on every push is the native
+  installer's performance ceiling and its install-location contract.
+- **The install-and-boot check runs NIGHTLY, not per PR.**
+  `build-windows.yml`'s `Smoke-install Windows installer (x64)` job downloads the
+  installer that workflow just built, installs it silently on a clean
+  `windows-latest` runner, and runs `scripts/smoke-windows-install.ps1`: it
+  asserts the uninstall registration and its `InstallLocation`, that the install
+  claimed an owned subdirectory rather than the pre-existing directory it was
+  pointed at, that a Start Menu shortcut targets the executable THIS install
+  wrote, that the bundled CLI runs, that the installed gateway answers
+  `/api/health`, and that a silent uninstall removes both the registration and
+  the tree. `build-windows.yml` is `workflow_call`-only from `nightly.yml` and
+  `release.yml` plus a `workflow_dispatch` packaging probe, so this leg costs a
+  PR nothing and a packaging change that only breaks a real install is caught by
+  the next nightly — or before merge by dispatching that probe. There is **no
+  `PATH` edit to check**: the installer makes none, so the CLI is exercised at
+  `resources\backend-dist\kirocrew-backend\bin\kirocrew.cmd` rather than by name.
+- **The fail-closed sandbox opt-in contract IS checked per PR.**
+  `test/test_windows_fail_closed_optin.py` runs on `windows-latest` in the
+  `backend-test-windows` shards and again in a dedicated
+  `Windows Fail-Closed Sandbox Contract` job that runs it by node id and greps
+  the pass count, so a silent skip cannot go green. It boots a real gateway
+  against the packaged fake ACP backend on a home with no `config.json` and a
+  host with no `~/.kiro/settings/amazon-internal.json`, requires one session and
+  one prompt turn to complete, and separately requires an unclassified spawn to
+  fail closed and the same spawn to run once
+  `agent.sandbox_allow_unsandboxed_exec=true` is on disk. See
+  [e2e-gate.md](../ci/e2e-gate.md) for how the distribution and contract legs
+  divide the work.
 
 The source install below remains the fully supported path.
 

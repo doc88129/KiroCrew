@@ -223,6 +223,248 @@ Download the artifact first; bisect second.
 start (a stalled browser install) has neither directory, and the upload must not
 turn that into a second, misleading failure.
 
+## The distribution layer: install the artifact, then boot it
+
+The browser gate above and the backend shards both run against a SOURCE tree. A
+whole class of failure is invisible to both, because it lives in packaging
+metadata that a package manager or an installer interprets rather than in code we
+run: a dependency name that does not exist in the target distro, a registry
+registration that never lands, a prune that drops a module the packaged
+interpreter imports at boot. Each of those produces an artifact that builds green
+and then refuses to install or refuses to start.
+
+Two legs cover it, and neither costs a PR any minutes: both live in
+`workflow_call` workflows reached from `nightly.yml` and `release.yml`.
+
+| Leg | Job | Script | What only a real install shows |
+| --- | --- | --- | --- |
+| Linux | `build-desktop.yml` -> `Smoke-install Linux packages (deb + rpm)` | `scripts/smoke-linux-packages.sh` | dependency names resolve in Ubuntu 24.04 and Amazon Linux 2023, the `.desktop` entry's `StartupWMClass` equals Electron's app_id, the maintainer scripts place and remove `/usr/bin/<exe>`, and the beacon stamp names THIS format |
+| Windows | `build-windows.yml` -> `Smoke-install Windows installer (x64)` | `scripts/smoke-windows-install.ps1` | the uninstall registration and its `InstallLocation`, the install-root ownership boundary, where the Start Menu shortcut POINTS, that the bundled CLI runs, that the installed gateway answers `/api/health`, and that a silent uninstall removes both the registration and the tree |
+
+Both scripts DERIVE every identity from the artifact rather than naming it. The
+nightly channel deliberately ships different ones so it can sit beside stable:
+`packaging/build-desktop.sh` overrides `productName`, `extraMetadata.name`,
+`deb.packageName`, `linux.executableName` and `nsis.guid` for a `-nightly.`
+version, which moves the install directory, the launcher name, the registry key
+and the shortcut name together. Hardcoding stable's spelling fails the gate on
+every nightly build, and because a failed job inside a reusable workflow fails
+the CALLER's job, that would silently skip a whole platform's publication. The
+Linux script reads the package's own declared name and its desktop entry's
+filename; the Windows script diffs the uninstall registry around the install and
+reads the registration that appeared.
+
+Reading the repository's `website/electron/package.json` would be just as wrong
+on Windows as hardcoding: those channel overrides are electron-builder CLI flags,
+so the file on disk still says `KiroCrew` while the artifact says otherwise.
+
+### What the Windows smoke does NOT assert
+
+There is no `PATH` edit to assert. The `nsis` block in
+`website/electron/package.json` declares no PATH handling and
+`website/electron/build/installer.nsh` touches only shortcuts and the
+electron-updater cache, so a desktop install puts no `kirocrew` on `PATH`. The
+bundled CLI is exercised at its packaged path
+(`resources\backend-dist\kirocrew-backend\bin\kirocrew.cmd`) as its own new
+process instead, which is the path
+[windows-install.md](../guides/windows-install.md) describes and the one the
+managed-server invocation resolves.
+
+### `build.yml`'s installer job is a performance ceiling, not install coverage
+
+`build.yml`'s `build-windows-installer` job compiles an NSIS installer on every
+qualifying PR and runs `.github/scripts/test-windows-installer.ps1` with
+`-SkipGatewayValidation`. That flag is correct there and is deliberately left in
+place: the job stages a two-line `@echo off` batch file as its entire backend
+payload (`Create minimal backend payload`), so there is no bundled interpreter for
+the script's gateway leg to launch. What that job measures is the install
+DURATION ceiling, the registration, the install-root ownership boundary and the
+native install-mode page — on a 20-minute budget.
+
+Removing the flag would mean giving that job a real backend, which means running
+`packaging/build-desktop.sh`'s python-build-standalone build inside it. That is
+the work `build-windows.yml` already does, so the PR lane would pay for a second
+full backend build to reach an assertion the nightly leg makes against the bytes
+users actually receive. The install-and-boot coverage therefore lives in
+`build-windows.yml`, and `build.yml` keeps its fast ceiling check.
+
+The consequence to state plainly: the Windows install-and-boot assertions are
+verified by the NIGHTLY run, not per PR. A packaging change that only breaks a
+real install is caught within a day, not at review time. `build-windows.yml`'s
+`workflow_dispatch` probe is how that is checked before merge when a change
+warrants it.
+
 Related: [i18n-gates.md](i18n-gates.md) for the render-time gate that shares this
 job, and [ci-and-reviews.md](ci-and-reviews.md) for where `e2e` sits among the
 other PR gates.
+
+## The cross-OS gateway boot matrix
+
+Everything above is `ubuntu-latest`. `test/e2e/test_gateway_boot_matrix.py` is the
+one asset that boots a real gateway on **macOS and Windows too**, and `ci.yml`'s
+`e2e-boot-matrix` job is what runs it: `strategy.matrix.os` of `ubuntu-latest`,
+`macos-15` and `windows-latest`, `fail-fast: false`, `needs: [await-fast-gate]`,
+20 minutes.
+
+### Why it exists
+
+Before it, no job on either of those runners started a gateway at all: the whole
+E2E surface is gated on `KIROCREW_E2E`, which only `setup.py test_e2e` sets, and
+only the Linux `e2e` job runs that. That is one of the two holes
+[#8117](https://github.com/kirodotdev/KiroCrew/pull/8117) fell through, reverted
+in
+[56f67aa43](https://github.com/kirodotdev/KiroCrew/commit/56f67aa43f00f9484c346a8d1669b39102a63c78).
+It added a settings-file probe to `sandbox.wrap_argv`'s Windows delegation
+branch, so on a fresh Windows host -- where that file does not exist -- the Kiro
+ACP spawn stopped delegating to Kiro CLI's own sandbox, fell through to the
+no-backend fail-closed path, and the gateway never became usable. The unit test
+that pinned that branch, `test/test_sandbox_argv.py`, is in
+`test/windows-collect-ignore.txt`, and the PR changed its mock to hardcode the
+one answer a fresh Windows host cannot give. No second unit test closes that;
+only a real boot on the real platform does.
+
+### What it asserts
+
+Seven tests, each on its own gateway and its own scratch `KIROCREW_HOME`:
+
+| Test | What it pins |
+|---|---|
+| `test_gateway_boots_and_answers_health` | `KIROCREW_READY:` then an unauthenticated `GET /api/health` 200. |
+| `test_resolved_provider_is_acp` | The provider resolves to `acp`, so the `KIROCREW_KIRO_BIN` seam fires. |
+| `test_prompt_returns_the_fake_backend_reply` | One session create plus one prompt returns the fake backend's reply. `/api/health` can answer while the ACP spawn is refused, so this is the load-bearing one. |
+| `test_tool_marker_prompt_completes_the_turn` | A `[[TOOL]]` prompt still completes its turn. |
+| `test_seeded_sandbox_mode_boots_and_runs_a_turn[minimal]` | `agent.sandbox: "off"` boots and serves. |
+| `test_seeded_sandbox_mode_boots_and_runs_a_turn[rich]` | The shipped `auto` default boots and serves. **This is the #8117 pin.** |
+| `test_shutdown_leaves_no_gateway_child_alive` | Teardown reaps the tree: the pid is gone (via `platform_compat.pid_exists`, never `os.kill(pid, 0)`) and the port refuses connections. |
+
+The tier is expressed as a SEED FIXTURE rather than a post-boot config write,
+because `agent.sandbox` is read at boot: `minimal` states `"off"` and `rich`
+omits the key, so it resolves to the shipped default, which is the tier a fresh
+install runs. The test asserts the fixture still says so, so editing either
+fixture fails there instead of quietly collapsing the matrix to one tier tested
+twice.
+
+Under `auto`, the turn expectation off Windows is DERIVED from the product's own
+backend probe rather than assumed. A host with a real backend (macOS seatbelt,
+Linux user namespaces) must complete the turn; a host that genuinely has none
+must FAIL CLOSED with a named sandbox refusal and stay healthy. `ubuntu-latest`
+is that second host: its unprivileged user namespaces are AppArmor-restricted,
+which is why `backend-test-sandbox` has to clear a sysctl to get one. On Windows
+the expectation is unconditionally the first, so a #8117-style regression cannot
+hide in the fail-closed branch.
+
+### `KIROCREW_E2E_MATRIX_REQUIRE=1`: the second marker
+
+Same mechanism as `KIROCREW_E2E_REQUIRE` above, for a different module. An unmet
+PRECONDITION (the packaged fake ACP backend missing, `kiro_crew.testing` not
+importable) is a graceful `pytest.skip` on a local run and a `pytest.fail` on the
+job. Set it wherever you expect gateways to actually boot.
+
+### The job's own honesty checks
+
+- **`KIROCREW_HARNESS_READY_TIMEOUT` per OS**: 60 on Ubuntu, 90 on macOS, 180 on
+  Windows. It lives in the job env, not the test, so a slow runner is retunable
+  without a code change. Windows needs the widest window: subprocess spawn and
+  filesystem latency there are measurably slower, the conditions
+  [#9172](https://github.com/kirodotdev/KiroCrew/pull/9172) addressed when a slow
+  disk killed the gateway.
+- **`-n0` with `--timeout=420`**: the module spawns a real process per test, and
+  under xdist a block takes the worker with it, which on Windows aborts the run.
+  The cap sits above the widest readiness window plus the per-turn reply ceiling,
+  so a stuck turn fails by name.
+- **A canary grep for `7 passed`**, copied from the macOS peer-identity canary.
+  `pytest` exits 0 on a fully skipped module, so the exit code cannot tell seven
+  booted gateways from a module that was never collected. Raise the number when
+  you add a test to that file.
+- **`shell: bash` on every leg**, so one command text serves all three; the
+  Windows default is pwsh, where `tee` and `grep` are not these tools.
+
+`pr-readiness.yml` needs no entry: it resolves lanes by WORKFLOW FILE
+(`ci.yml` -> `CI`), never by job name, so every job inside `ci.yml` is already
+part of the required `CI` verdict.
+
+## The pod scenario suite (nightly, not a PR gate)
+
+A second E2E lane, orthogonal to the browser gate above. `test/e2e/scenarios/`
+boots ONE real service-managed pod through the shipped `kirocrew pod` verbs and
+drives five user-visible flows against it: a setting saved across a gateway
+restart, a cron firing, one agent turn with a tool call, the host service
+definition rendering inside a pod's environment, and the built wheel installing
+into a clean venv. The recipes are in
+[../guides/worktree-verification-recipes.md](../guides/worktree-verification-recipes.md).
+
+Plain pytest, not pytest-bdd or Robot Framework. This repo's isolation, timeout
+and sharding story is already pytest-shaped, and a second framework would need a
+second isolation story rather than inheriting this one.
+
+### Gating
+
+Same shape as `KIROCREW_E2E_REQUIRE` above, and for the same reason.
+
+- `KIROCREW_E2E_SCENARIOS` unset: every scenario skips. The suite boots a real
+  pod, which is minutes and a service manager away from a bare `pytest`.
+- `KIROCREW_E2E_SCENARIOS_REQUIRE=1`: every precondition skip becomes a FAILURE.
+  A skip counts as a pass, so without this the job would report green having run
+  zero scenarios.
+
+`KIROCREW_E2E_SCENARIOS_REAL_AGENT=1` opts the agent turn onto the host's
+signed-in `kiro-cli` instead of the packaged fake backend, and is REFUSED when no
+`kiro-cli` is on PATH rather than being quietly served by the fake.
+
+### The `pod-scenarios` job
+
+Lives in `.github/workflows/nightly.yml`, matrix `[ubuntu-latest, macos-15]` with
+`fail-fast: false` and `timeout-minutes: 40`. It is not a `needs:` of any publish
+lane, so a scenario failure never holds up a nightly release and a release
+failure never hides a scenario result. `workflow_dispatch` on the workflow makes
+it runnable on a branch.
+
+Steps, in order: build the checkout's `.venv` (a pod boots the CHECKOUT's own
+`kirocrew`, and the suite refuses to fall back to a global one), `npm ci` plus
+`npm run build` in `website/` staged into `src/kiro_crew/static/dist` (a pod
+refuses to come up without a bundle), bring up a service manager, run the suite,
+upload the pod logs on failure.
+
+**The Linux leg has to CREATE its `systemd --user` session.** A hosted ubuntu
+runner has no login session, so there is no per-user manager and no session bus,
+and every pod verb refuses through `pod/runtime.py`'s `require_systemd`. The job
+runs `sudo loginctl enable-linger "$USER"`, which is the exact remedy that
+refusal prints. It then exports `XDG_RUNTIME_DIR=/run/user/<uid>` and
+`DBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/<uid>/bus` into `$GITHUB_ENV`,
+because `systemctl --user` locates the manager through those two and a non-login
+shell inherits neither. Linger creates the runtime directory asynchronously, so
+the step polls for the bus socket rather than sleeping a fixed amount.
+
+That step then PROVES the session in the log with `systemctl --user --version`,
+`is-system-running`, and a `show-environment` that fails the job when the manager
+cannot be reached. Without the proof a broken session degrades into six skipped
+scenarios, and the REQUIRE marker would be the only thing between that and a
+green nightly. A systemd-capable container (the pattern `docker-smoke.yml` uses)
+is the fallback if a future runner image cannot linger; it is not needed today.
+
+macOS needs no equivalent. The pod's launchd backend uses the per-user launchd
+domain, which a runner session already has, so that leg only prints
+`launchctl print user/<uid>` to keep the two logs readable side by side.
+
+### The canary
+
+Copied from `ci.yml`'s macOS peer-identity step: run by path with `-v -n0`, tee
+to `pod-scenarios.log`, then `grep -qE '6 passed'` and fail the step otherwise.
+An exit code cannot tell "every scenario passed" from "every scenario was never
+collected", and a precondition-gated suite degrades into exactly that. **Raise
+the expected count when you add a scenario.**
+
+On failure the job uploads `pod-scenarios.log` plus the pod plane's artifact and
+log files as `pod-scenarios-logs-<os>` (7 days, `if-no-files-found: ignore`). A
+pod's boot refusal is only fully legible in its own journal or log files; the job
+log carries just the tail `pod up` chose to print.
+
+### Windows is a matrix add, not a rewrite
+
+No scenario body contains a platform test. Only the pod fixture asks whether this
+host can run pods, and it asks the pod's own `runtime.require_backend()`, which
+already dispatches systemd on Linux and launchd on macOS. When a Windows backend
+lands for that gate to find (`feat/pod-windows-backend`), Windows becomes one
+more entry in `strategy.matrix.os` plus a service-manager step beside the two
+above. Deferred with it: whatever the Windows service manager needs to make a
+pod's private API socket reachable, since `pod api` has no TCP fallback by
+design.

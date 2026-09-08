@@ -1631,7 +1631,7 @@ def pytest_runtest_setup(item):
 
 
 def pytest_collection_modifyitems(config, items):
-    """Apply exact capability skips, then Windows' tracked known-gap skips.
+    """Apply exact capability skips, then the tracked known-gap skips for this OS.
 
     Real-symlink tests are listed individually rather than intercepting
     ``os.symlink`` globally.  A global interception also catches production
@@ -1639,19 +1639,21 @@ def pytest_collection_modifyitems(config, items):
     a junction, silently dropping the Windows behavior those tests exist to
     cover.  Exact collection markers leave every non-link path untouched.
 
-    The list lives in ``test/windows-expected-failures.txt`` -- one unparametrized node
-    id per line, captured from the first Windows CI runs. It is a burn-down backlog:
-    fixed tests get their line deleted, and anything NOT on the list still fails the
-    job, so the Windows line holds for the tests that pass today.
+    The lists live in ``test/windows-expected-failures.txt`` and
+    ``test/macos-expected-failures.txt`` -- one unparametrized node id per line,
+    captured from the first CI runs on that OS. Each is a burn-down backlog: fixed
+    tests get their line deleted, and anything NOT on the list still fails the
+    job, so the line holds for the tests that pass today. Both go through the same
+    ``_apply_tracked_gap_list`` matcher; do not add a third mechanism.
 
-    Lives HERE rather than in ``test/conftest.py`` because the list already names node
+    Lives HERE rather than in ``test/conftest.py`` because the lists already name node
     ids under ``src/kiro_crew/apps/builtins/auto_improvement/tests/``, and a hook rooted
     at ``test/`` is never registered when only in-package tests are collected -- which is
     exactly what CI's reduced-scope Windows job does when a diff touches no path under
     ``test/``. Those entries are also absent from ``BACKEND_DESELECTS``, so they were
     collected unskipped and the shard went red for a gap that was already tracked.
 
-    The list file itself stays under ``test/``, read by path from here. Node ids are
+    The list files themselves stay under ``test/``, read by path from here. Node ids are
     always spelled with ``/`` even on Windows, so the in-package entries need no
     translation.
     """
@@ -1673,9 +1675,24 @@ def pytest_collection_modifyitems(config, items):
             if _base_nodeid(item.nodeid) in requires_real_symlink:
                 item.add_marker(marker)
 
-    if not platform_compat_or_none() or not platform_compat_or_none().IS_WINDOWS:
+    pc = platform_compat_or_none()
+    if pc is None:
         return
-    listfile = _REPO_ROOT / "test" / "windows-expected-failures.txt"
+    if pc.IS_WINDOWS:
+        _apply_tracked_gap_list(items, "windows-expected-failures.txt", "Windows")
+    elif pc.IS_MACOS:
+        _apply_tracked_gap_list(items, "macos-expected-failures.txt", "macOS")
+
+
+def _apply_tracked_gap_list(items, listname: str, platform_label: str) -> None:
+    """Skip every collected item named in ``test/<listname>``.
+
+    ONE mechanism serves both OS gap lists. macOS reuses it rather than growing a
+    second matcher, so the node-id spelling rule (``_base_nodeid``: no ``[params]``,
+    no ``@group``) and the burn-down semantics -- anything NOT listed still fails
+    the job -- are identical on both platforms by construction.
+    """
+    listfile = _REPO_ROOT / "test" / listname
     try:
         text = listfile.read_text(encoding="utf-8")
     except OSError:  # pragma: no cover - list file absent in a partial checkout
@@ -1685,9 +1702,9 @@ def pytest_collection_modifyitems(config, items):
         for ln in text.splitlines()
         if ln.strip() and not ln.startswith("#")
     }
-    marker = pytest.mark.skip(
-        reason="known Windows gap -- tracked in test/windows-expected-failures.txt"
-    )
+    if not expected:
+        return
+    marker = pytest.mark.skip(reason=f"known {platform_label} gap -- tracked in test/{listname}")
     for item in items:
         if _base_nodeid(item.nodeid) in expected:
             item.add_marker(marker)

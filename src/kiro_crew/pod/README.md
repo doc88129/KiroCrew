@@ -275,9 +275,21 @@ worktree build, and pinning a colliding pod's own `PORT=` remains the manual way
 | `KIROCREW_POD_LIVE_PORT` | `5476` | the port a pod must never bind |
 | `KIROCREW_POD_UNIT_PREFIX` | `kirocrew-pod` | systemd unit prefix |
 | `KIROCREW_POD_BIN` | (auto) | the `kirocrew` binary the unit boots |
+| `KIROCREW_POD_KIRO_BIN` | (unset) | agent backend pinned into the service definition as `KIROCREW_KIRO_BIN` |
 
 Overriding the prefix + roots + base port yields a fully **hermetic pod plane**
 that can't collide with a developer's live pods — used by the test suite.
+
+`KIROCREW_POD_KIRO_BIN` is the offline seam. A booted pod starts from the service
+manager's clean environment, so nothing the caller exports reaches its gateway —
+including `KIROCREW_KIRO_BIN`, the pin `kiro_cli.py` reads to override the agent
+binary. Without a plane-level knob there was no way to give a pod the packaged
+fake ACP backend, so an agent turn inside a pod needed a real signed-in
+`kiro-cli` and could not run on an offline CI runner. Set it to
+`kiro_crew.testing.fake_acp_backend`'s file and both backends pin it: the systemd
+unit gets an `Environment=` line, the launchd plist an `EnvironmentVariables`
+entry, from the one `environment_vars` selection. Unset, nothing is emitted and a
+pod resolves the host's real `kiro-cli` exactly as before.
 
 ## Safety
 

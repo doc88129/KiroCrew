@@ -21,7 +21,6 @@
 # Adding a file here excludes it from both paths. Removing one re-enables it on
 # Windows; residual per-test gaps belong in windows-expected-failures.txt.
 
-test_harness.py                    # spawns real gateways; PGID + socketpair plumbing
 test_sandbox_argv.py               # OS sandbox is POSIX-only
 test_sandbox_cc_mode.py            # OS sandbox is POSIX-only
 test_sandbox_hardlink_scan.py      # OS sandbox is POSIX-only (launcher uses getuid)
