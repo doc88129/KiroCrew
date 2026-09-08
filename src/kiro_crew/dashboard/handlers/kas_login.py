@@ -233,7 +233,40 @@ async def api_kas_login_logout(request: web.Request) -> web.Response:
             status=500,
         )
     await _audit(request, "kas_login_logout", "success")
+    await _retire_runtimes_after_sign_out(request)
     return web.json_response({"ok": True})
+
+
+async def _retire_runtimes_after_sign_out(request: web.Request) -> None:
+    """Recycle running agent processes once a Crew sign-out has removed the vault entry.
+
+    A KAS process spawned with Crew as its auth owner holds the access token it was
+    last handed in memory and keeps serving turns on it until the engine's next
+    refresh -- up to the token's remaining lifetime -- even though the vault it came
+    from is now empty. Deleting the entry alone therefore leaves the account live for
+    that long. This is the same shape as an external ``kiro-cli logout`` against a
+    running kiro-backed child, and it takes the same remedy: the identity-change
+    sweep, which retires every idle member of ``ACP_BACKENDS_KIRO_IDENTITY_STORE``
+    (KAS included) and marks busy ones for retirement at their next turn. The
+    replacement processes re-probe the vault and, finding nothing, spawn kiro-cli-
+    owned. Kiro-backed children are recycled too: they never read the vault, so for
+    them this is one idle respawn, which is the conservative side of the trade.
+
+    Best-effort: the credential is already gone, so a failure here must not turn a
+    true logout into a reported failure; it is logged and the sweep runs again on
+    the next identity-change probe.
+    """
+    state = request.app.get("state")
+    sessions = getattr(state, "sessions", None)
+    retire = getattr(sessions, "retire_kiro_identity_sessions", None)
+    if retire is None:
+        return
+    try:
+        retired, complete = await retire()
+    except Exception:
+        logger.warning("post-sign-out runtime retirement failed", exc_info=True)
+        return
+    logger.info("post-sign-out runtime retirement: retired=%d complete=%s", len(retired), complete)
 
 
 async def api_kas_login_begin_loopback(request: web.Request) -> web.Response:

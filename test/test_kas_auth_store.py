@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import sys
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
@@ -105,6 +106,34 @@ def test_delete_removes_token(tmp_path: Path):
 
 def test_delete_missing_is_noop(tmp_path: Path):
     TokenStore(tmp_path).delete("social")  # no store yet — must not raise
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="contention timing assumes POSIX flock")
+def test_delete_waits_for_the_identity_refresh_lock(tmp_path: Path):
+    """``delete`` serializes with a refresh holding the identity's lock, so a
+    logout can never land in the middle of a refresh's read-renew-save and be
+    undone by the save that follows."""
+    import os
+    import threading
+
+    from kiro_crew.platform_compat import acquire_lock, release_lock
+
+    store = TokenStore(tmp_path)
+    store.save(_token())
+    fd = os.open(str(store.lock_path("social")), os.O_RDWR | os.O_CREAT, 0o600)
+    acquire_lock(fd, exclusive=True)
+    done = threading.Event()
+    worker = threading.Thread(target=lambda: (store.delete("social"), done.set()))
+    try:
+        worker.start()
+        assert not done.wait(0.3), "delete must block while the refresh lock is held"
+        assert store.load("social") is not None
+    finally:
+        release_lock(fd)
+        os.close(fd)
+    assert done.wait(5), "delete must proceed once the lock is released"
+    worker.join(5)
+    assert store.load("social") is None
 
 
 def test_delete_propagates_store_failure(tmp_path: Path, monkeypatch):

@@ -68,6 +68,16 @@ class RefreshError(Exception):
     """A token could not be refreshed."""
 
 
+class IdentitySignedOut(RefreshError):
+    """The identity was removed from the store while a refresh was pending.
+
+    Raised from inside the refresh lock when the re-read finds no token: a logout
+    (``TokenStore.delete``, which takes the same lock) landed first. The token the
+    caller was handed is stale by definition and must not be refreshed or saved --
+    doing so would resurrect a credential the user just removed.
+    """
+
+
 async def ensure_fresh(
     store: TokenStore,
     token: KasToken,
@@ -112,11 +122,15 @@ async def ensure_fresh(
             await asyncio.to_thread(_acquire_flock, fd)
             try:
                 # Re-read inside the cross-process lock: a peer process may have
-                # refreshed while we waited on the flock.
+                # refreshed while we waited on the flock -- or a logout may have
+                # deleted the identity, in which case the token in hand is the
+                # one the user just removed and must not come back.
                 current = await asyncio.to_thread(store.load, token.identity)
-                if current is not None and not current.is_expired():
+                if current is None:
+                    raise IdentitySignedOut(f"identity {token.identity} was signed out")
+                if not current.is_expired():
                     return current
-                refreshed = await _refresh(current or token, session=session)
+                refreshed = await _refresh(current, session=session)
                 # store.save does blocking file IO (owner-only lockdown included) — off-loop.
                 await asyncio.to_thread(store.save, refreshed)
                 return refreshed

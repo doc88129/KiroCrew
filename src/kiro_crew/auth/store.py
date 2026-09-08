@@ -28,7 +28,12 @@ from pathlib import Path
 
 from cryptography.exceptions import InvalidTag
 
-from kiro_crew.platform_compat import is_link_or_junction, make_owner_only_dir
+from kiro_crew.platform_compat import (
+    acquire_lock,
+    is_link_or_junction,
+    make_owner_only_dir,
+    release_lock,
+)
 from kiro_crew.secrets import SecretVault
 
 logger = logging.getLogger(__name__)
@@ -210,13 +215,37 @@ class TokenStore:
         success — the caller (the logout handler) turns a raised ``TokenStoreError``
         into a coded error, rather than a false HTTP 200 while the bearer token
         still sits in the store. ``ValueError`` still means a bad identity kind.
+
+        The delete runs under the identity's refresh lock (:meth:`lock_path`, the
+        same flock :func:`kiro_crew.auth.refresh.ensure_fresh` holds across its
+        HTTP round-trip and ``save``). Unserialized, a refresh that began before
+        the logout could persist a renewed token AFTER the delete and the logout
+        would report success while a live credential sat in the vault. Ordered
+        either way the outcome is right: refresh-then-delete leaves nothing, and
+        delete-then-refresh makes the refresher's in-lock re-read find nothing and
+        stop (it never re-persists the token it was handed).
         """
         name = self._entry(identity)
         self._assert_unlinked()
         try:
-            self._vault.delete_sync(name)
-        except (OSError, ValueError, TypeError, AttributeError) as err:
-            raise TokenStoreError(f"could not delete KAS token {identity}") from err
+            fd = os.open(str(self.lock_path(identity)), os.O_RDWR | os.O_CREAT, 0o600)
+        except OSError as err:
+            raise TokenStoreError(f"could not take the refresh lock for {identity}") from err
+        try:
+            try:
+                # Blocks until a peer's refresh releases (POSIX flock; a bounded
+                # poll on Windows that raises rather than proceeding unserialized).
+                acquire_lock(fd, exclusive=True)
+            except OSError as err:
+                raise TokenStoreError(f"could not take the refresh lock for {identity}") from err
+            try:
+                self._vault.delete_sync(name)
+            except (OSError, ValueError, TypeError, AttributeError) as err:
+                raise TokenStoreError(f"could not delete KAS token {identity}") from err
+            finally:
+                release_lock(fd)
+        finally:
+            os.close(fd)
 
     def resolve(self) -> KasToken | None:
         """Return the highest-priority stored token (External > Builder > Social).
