@@ -14202,6 +14202,7 @@
     "membersPage": {
       "agent_template": "Agent-Vorlage",
       "configuration": "Konfiguration",
+      "crew_summary": "Crew-Übersicht",
       "details": "Details",
       "edit_in_crew_manager": "In der Crew-Verwaltung bearbeiten",
       "edit_member": "Mitglied bearbeiten",

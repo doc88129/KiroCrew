@@ -14569,6 +14569,7 @@
     "membersPage": {
       "agent_template": "Шаблон агента",
       "configuration": "Конфигурация",
+      "crew_summary": "Сводка участника",
       "details": "Подробности",
       "edit_in_crew_manager": "Изменить в менеджере команд",
       "edit_member": "Изменить участника",

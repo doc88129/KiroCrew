@@ -6942,6 +6942,7 @@
     "membersPage": {
       "agent_template": "Agent template",
       "configuration": "Configuration",
+      "crew_summary": "Crew summary",
       "details": "Details",
       "edit_in_crew_manager": "Edit in crew manager",
       "edit_member": "Edit member",

@@ -14019,6 +14019,7 @@
     "membersPage": {
       "agent_template": "Agent 模板",
       "configuration": "配置",
+      "crew_summary": "成员概览",
       "details": "详情",
       "edit_in_crew_manager": "在团队管理页中编辑",
       "edit_member": "编辑成员",

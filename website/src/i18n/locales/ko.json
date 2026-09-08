@@ -14019,6 +14019,7 @@
     "membersPage": {
       "agent_template": "에이전트 템플릿",
       "configuration": "구성",
+      "crew_summary": "멤버 요약",
       "details": "상세",
       "edit_in_crew_manager": "크루 관리 페이지에서 편집",
       "edit_member": "멤버 편집",

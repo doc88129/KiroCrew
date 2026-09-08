@@ -14385,6 +14385,7 @@
     "membersPage": {
       "agent_template": "Modello di agente",
       "configuration": "Configurazione",
+      "crew_summary": "Riepilogo membro",
       "details": "Dettagli",
       "edit_in_crew_manager": "Modifica nel gestore delle crew",
       "edit_member": "Modifica membro",

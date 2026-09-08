@@ -14386,6 +14386,7 @@
     "membersPage": {
       "agent_template": "Plantilla de agente",
       "configuration": "Configuración",
+      "crew_summary": "Resumen del miembro",
       "details": "Detalles",
       "edit_in_crew_manager": "Editar en el gestor de equipos",
       "edit_member": "Editar miembro",

@@ -14019,6 +14019,7 @@
     "membersPage": {
       "agent_template": "エージェントテンプレート",
       "configuration": "設定",
+      "crew_summary": "メンバー概要",
       "details": "詳細",
       "edit_in_crew_manager": "クルー管理ページで編集",
       "edit_member": "メンバーを編集",

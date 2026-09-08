@@ -14203,6 +14203,7 @@
     "membersPage": {
       "agent_template": "এজেন্ট টেমপ্লেট",
       "configuration": "কনফিগারেশন",
+      "crew_summary": "সদস্যের সারসংক্ষেপ",
       "details": "বিস্তারিত",
       "edit_in_crew_manager": "ক্রু ম্যানেজারে সম্পাদনা করুন",
       "edit_member": "সদস্য সম্পাদনা করুন",
