@@ -9146,7 +9146,8 @@
       "chatFooter": {
         "compacting": "কম্প্যাক্ট করা হচ্ছে…",
         "killing": "জোর করে বন্ধ করা হচ্ছে…",
-        "stopping": "থামানো হচ্ছে…"
+        "stopping": "থামানো হচ্ছে…",
+        "theme_loader": "থিম লোডার"
       },
       "chatNavPanel": {
         "link": "লিঙ্ক",

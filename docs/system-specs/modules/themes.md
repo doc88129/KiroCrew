@@ -29,8 +29,8 @@ a pack may ship. Validation is tier-scaled to payload trust.
 | Tier | `level` | Surface unlocked |
 |---|---|---|
 | **L0 Color** | 0 | the 56 theme CSS variables (dark + light) only |
-| **L1 Branded** | 1 | + `branding/` (logo, favicon, wordmark), `styles/fonts/`, scoped `overrides.css` |
-| **L2 Experience** | 2 | + `overlays/` + `topbar/` sandboxed HTML, `audio/`, `persona.md` |
+| **L1 Branded** | 1 | + `branding/` (logo, favicon, wordmark), `styles/fonts/`, scoped `overrides.css`, `loader/*.png\|webp` |
+| **L2 Experience** | 2 | + `overlays/` + `topbar/` sandboxed HTML, `audio/`, `persona.md`, `loader/loader.html` |
 
 Level-1 and Level-2 manifests may also declare `loaderIcons`: 4–8 distinct
 names from the bundled stock-symbol allowlist (`cloud`, `flower`, `heart`,
@@ -40,6 +40,18 @@ Lucide components and reuses the existing carousel. No component code, SVG, or
 asset path crosses the manifest boundary. Missing declarations preserve the
 Kiro ghost poses, and trusted compiled themes retain the broader
 `registerThemeBranding()` component seam.
+
+Installed packs may also supply the loader **art**, not just select symbols:
+`loader/*.png` / `loader/*.webp` (4–8 raster images, Level 1) are cycled by the
+stock carousel, and `loader/loader.html` (Level 2) is a fully custom CSS/SVG
+loader served at `/api/theme/{slug}/loader` under a dedicated script-free loader
+CSP (empty `sandbox`, no `script-src`, `connect-src 'none'`, `media-src 'none'`;
+a `<meta refresh>` loader is refused) in a click-through iframe clamped to the
+loader band. Scripts are denied so a loader cannot self-navigate the frame to
+beacon out. Raster art is served with a
+strict Content-Type + `nosniff`; SVG is refused (script surface). The frontend
+`resolveLoader` precedence is: compiled `loader` → pack `loader.html` → pack
+raster images → `loaderIcons` (manifest, then compiled) → the default poses.
 
 Constants (`dashboard/theme_validate.py`): `_THEME_MAX_LEVEL=2`,
 `_THEME_MAX_FONTS=6`, `_THEME_MAX_OVERLAYS=5`, `_THEME_PERSONA_MAX_CHARS=2000`,
@@ -115,6 +127,7 @@ Registered in `dashboard/server.py`. The validation/parsing core lives in
 | `GET` | `/api/theme/{slug}/assets/{path}` | Serve a pack asset (nosniff + content-type allowlist) |
 | `GET` | `/api/theme/{slug}/overlay/{id}` | Serve overlay HTML (locked CSP) |
 | `GET` | `/api/theme/{slug}/topbar/{mode}` | Serve topbar HTML for `dark`/`light` (locked CSP) |
+| `GET` | `/api/theme/{slug}/loader` | Serve the pack's sandboxed custom loader HTML (locked CSP) |
 
 (`GET /api/theme/boot` and the editor CRUD `POST/PUT /api/themes[/{slug}]`
 predate this subsystem and remain the color-theme surface.)

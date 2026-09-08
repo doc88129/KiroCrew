@@ -251,6 +251,7 @@ _THEME_ALLOWED_DIRS = {
     "overlays": 2,
     "topbar": 2,
     "audio": 2,
+    "loader": 1,
 }
 # Per-level ceilings (entry count + total uncompressed bytes, §6.2).
 _THEME_ENTRIES_BY_LEVEL = {0: 32, 1: 64, 2: 160}
@@ -284,6 +285,12 @@ _THEME_LOADER_ICONS = frozenset(
 )
 _THEME_LOADER_ICONS_MIN = 4
 _THEME_LOADER_ICONS_MAX = len(_THEME_LOADER_ICONS)
+# Custom loader artwork an installed pack ships itself (Level 1): 4..8 raster
+# images cycled by the stock carousel. Raster only — no SVG (script surface) —
+# and served with a strict Content-Type + nosniff like any other pack asset.
+_THEME_LOADER_IMAGE_MIN = 4
+_THEME_LOADER_IMAGE_MAX = 8
+_THEME_LOADER_IMAGE_EXTS = ("png", "webp")
 # Per-file size caps by category (bytes), §4.1.
 _THEME_FILE_CAPS = {
     "manifest": 16 * 1024,
@@ -297,6 +304,9 @@ _THEME_FILE_CAPS = {
     "preview": 512 * 1024,
     "overlay": 200 * 1024,
     "topbar": 100 * 1024,
+    # Custom loader: a raster icon for the carousel, or the sandboxed loader HTML.
+    "loader_icon": 256 * 1024,
+    "loader_html": 64 * 1024,
     "audio_manifest": 16 * 1024,
     "audio": 512 * 1024,
     "audio_ambient": 2 * 1024 * 1024,
@@ -495,6 +505,11 @@ def _classify_theme_file(rel: str) -> tuple[str | None, int]:
         return "overlay", 2
     if top == "topbar" and len(parts) == 2 and parts[1] in ("dark.html", "light.html"):
         return "topbar", 2
+    if top == "loader" and len(parts) == 2:
+        if parts[1] == "loader.html":
+            return "loader_html", 2
+        if ext in _THEME_LOADER_IMAGE_EXTS:
+            return "loader_icon", 1
     if top == "audio" and len(parts) == 2 and ext in ("mp3", "ogg", "wav"):
         stem = parts[1].rsplit(".", 1)[0]
         return ("audio_ambient" if stem == "ambient" else "audio"), 2
@@ -1135,6 +1150,35 @@ def _validate_loader_icons(manifest: dict[str, Any], level: int) -> str | None:
     return None
 
 
+def _loader_image_names(theme_dir: Path) -> list[str]:
+    """Sorted file names of the pack's own loader carousel images (raster only)."""
+    d = theme_dir / "loader"
+    if not d.is_dir():
+        return []
+    return sorted(
+        p.name
+        for p in d.iterdir()
+        if p.is_file() and p.suffix.lower().lstrip(".") in _THEME_LOADER_IMAGE_EXTS
+    )
+
+
+def _validate_loader_images(theme_dir: Path) -> str | None:
+    """A pack shipping its own loader carousel art must ship 4..8 raster images.
+
+    Presence-based (like topbar dark/light) — no manifest key. An out-of-range
+    count fails install so the carousel always has a usable pool.
+    """
+    names = _loader_image_names(theme_dir)
+    if not names:
+        return None
+    if not (_THEME_LOADER_IMAGE_MIN <= len(names) <= _THEME_LOADER_IMAGE_MAX):
+        return (
+            f"loader/ must contain {_THEME_LOADER_IMAGE_MIN}\u2013{_THEME_LOADER_IMAGE_MAX} "
+            ".png or .webp images"
+        )
+    return None
+
+
 def _validate_theme_dir(
     path: Path, *, installing: bool = False
 ) -> tuple[dict[str, Any] | None, str | None]:
@@ -1301,7 +1345,7 @@ def _validate_theme_dir(
             )
             if c_err:
                 return None, c_err
-        elif category in ("overlay", "topbar"):
+        elif category in ("overlay", "topbar", "loader_html"):
             c_err = _validate_overlay_html(
                 entry.read_text(encoding="utf-8", errors="replace"), rel
             )
@@ -1331,6 +1375,9 @@ def _validate_theme_dir(
     tb_err = _validate_topbar_decls(manifest, path)
     if tb_err:
         return None, tb_err
+    li_err = _validate_loader_images(path)
+    if li_err:
+        return None, li_err
     _audio_desc, au_err = _validate_audio_manifest(path)
     if au_err:
         return None, au_err
@@ -1468,6 +1515,15 @@ def _theme_asset_descriptor(
         ]
         if len(resolved_loader_icons) >= _THEME_LOADER_ICONS_MIN:
             desc["loaderIcons"] = resolved_loader_icons[:_THEME_LOADER_ICONS_MAX]
+
+    # Pack-supplied loader artwork (Level 1: raster carousel images) and the
+    # sandboxed custom loader HTML (Level 2). Both are relative asset paths /
+    # flags the frontend resolves against the theme's own asset + loader routes.
+    loader_images = _loader_image_names(theme_dir)
+    if _THEME_LOADER_IMAGE_MIN <= len(loader_images) <= _THEME_LOADER_IMAGE_MAX:
+        desc["loaderImages"] = [f"loader/{name}" for name in loader_images]
+    if level >= 2 and (theme_dir / "loader" / "loader.html").is_file():
+        desc["hasLoaderHtml"] = True
 
     if level >= 2:
         overlays_dir = theme_dir / "overlays"
@@ -1615,6 +1671,17 @@ _THEME_OVERLAY_CSP = (
     "default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; "
     "img-src data:; media-src 'self'; connect-src 'none'; form-action 'none'; "
     "sandbox allow-scripts"
+)
+# The loader is a purely visual, decorative chat-footer indicator, expressed in
+# CSS/SVG. It runs with NO script permission (empty sandbox, no script-src): a
+# loader script could otherwise self-navigate the frame — location.replace to an
+# external URL — and beacon the viewer's IP and turn-timing out of band, a
+# channel connect-src 'none' does not close (no CSP directive governs a frame
+# navigating itself). media-src 'none' likewise keeps it off the consent- and
+# mute-gated theme audio path.
+_THEME_LOADER_CSP = (
+    "default-src 'none'; style-src 'unsafe-inline'; img-src data:; "
+    "media-src 'none'; connect-src 'none'; form-action 'none'; sandbox"
 )
 # Static theme assets (fonts/images/audio/css/json) are inert data, but an
 # installed SVG opened as a TOP-LEVEL document would otherwise inherit the app's

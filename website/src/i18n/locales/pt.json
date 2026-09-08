@@ -9275,7 +9275,8 @@
       "chatFooter": {
         "compacting": "Compactando…",
         "killing": "Encerrando à força…",
-        "stopping": "Parando…"
+        "stopping": "Parando…",
+        "theme_loader": "Carregador do tema"
       },
       "chatNavPanel": {
         "link": "Link",

@@ -9017,7 +9017,8 @@
       "chatFooter": {
         "compacting": "압축 중…",
         "killing": "강제 종료 중…",
-        "stopping": "중지 중…"
+        "stopping": "중지 중…",
+        "theme_loader": "테마 로더"
       },
       "chatNavPanel": {
         "link": "링크",

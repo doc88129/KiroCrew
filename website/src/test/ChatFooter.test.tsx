@@ -1,6 +1,6 @@
 import { describe, it, expect, afterEach, vi } from 'vitest'
 import { render, screen, act } from '@testing-library/react'
-import ChatFooter, { pickDistinct, resolveLoader, resolveLoaderIcons, SwapCarousel, STREAM_IDLE_MS } from '../pages/chat/ChatFooter'
+import ChatFooter, { pickDistinct, resolveLoader, resolveLoaderIcons, SwapCarousel, STREAM_IDLE_MS, ThemeLoaderFrame } from '../pages/chat/ChatFooter'
 import { GHOST_POSE_ICONS, GHOST_POSE_URLS } from '../components/GhostPoses'
 import { registerThemeBranding } from '../themeBranding'
 import { THEME_LOADER_ICONS } from '../themeLoaderIcons'
@@ -163,7 +163,7 @@ describe('loader — theme seam', () => {
 
   it('resolves stock symbols selected by an installed theme manifest', () => {
     const names = ['star', 'sparkles', 'moon', 'cloud'] as const
-    expect(resolveLoaderIcons('custom-pearce-crt', names)).toEqual(
+    expect(resolveLoaderIcons('custom-pearce-crt', { loaderIcons: names })).toEqual(
       names.map(name => THEME_LOADER_ICONS[name]),
     )
   })
@@ -173,13 +173,47 @@ describe('loader — theme seam', () => {
     ['too few symbols', ['star', 'sparkles', 'moon']],
     ['duplicate symbols', ['star', 'sparkles', 'moon', 'star']],
   ])('falls back safely for manifest pools with %s', (_case, names) => {
-    expect(resolveLoaderIcons('custom-broken', names)).toBe(GHOST_POSE_ICONS)
+    expect(resolveLoaderIcons('custom-broken', { loaderIcons: names })).toBe(GHOST_POSE_ICONS)
   })
 
   it('keeps a trusted compiled custom loader ahead of manifest symbols', () => {
     registerThemeBranding({ 'seam-manifest-precedence': { loader: CustomLoader } })
-    const got = resolveLoader('seam-manifest-precedence', ['star', 'sparkles', 'moon', 'cloud'])
+    const got = resolveLoader('seam-manifest-precedence', { loaderIcons: ['star', 'sparkles', 'moon', 'cloud'] })
     expect(got.kind).toBe('custom')
+  })
+
+  // Installed packs (this PR): custom raster art and a sandboxed custom loader.
+  it('resolves an installed pack’s own raster loader images', () => {
+    const got = resolveLoaderIcons(
+      'custom-reef',
+      { loaderImages: ['loader/a.png', 'loader/b.webp', 'loader/c.png', 'loader/d.png'] },
+    )
+    expect(got.length).toBe(4)
+    const { container } = render(<>{got.map((Ic, i) => <Ic key={i} />)}</>)
+    const imgs = container.querySelectorAll('img')
+    expect(imgs.length).toBe(4)
+    expect(imgs[0].getAttribute('src')).toBe('/api/theme/reef/assets/loader/a.png')
+  })
+
+  it('gives an installed pack’s sandboxed loader precedence over its icons', () => {
+    const got = resolveLoader(
+      'custom-reef',
+      { hasLoaderHtml: true, loaderIcons: ['star', 'sparkles', 'moon', 'cloud'] },
+    )
+    expect(got.kind).toBe('sandboxed')
+    expect(got.kind === 'sandboxed' && got.src).toBe('/api/theme/reef/loader')
+  })
+
+  it('isolates the sandboxed loader iframe: no scripts, no same-origin, no referrer, out of tab order', () => {
+    const { getByTestId } = render(<ThemeLoaderFrame src="/api/theme/reef/loader" />)
+    const frame = getByTestId('loader-sandbox') as HTMLIFrameElement
+    // Empty sandbox = opaque origin AND no script permission, so the frame can
+    // neither read parent DOM/URL nor self-navigate to beacon out; no-referrer
+    // empties the one datum (document.referrer) a load could otherwise leak.
+    expect(frame.getAttribute('sandbox')).toBe('')
+    expect(frame.getAttribute('referrerpolicy')).toBe('no-referrer')
+    expect(frame.getAttribute('aria-hidden')).toBe('true')
+    expect(frame.tabIndex).toBe(-1)
   })
 
   it('renders a registered theme’s icons in the footer', () => {

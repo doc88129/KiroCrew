@@ -91,28 +91,96 @@ function useThemeSlug(): string {
   return slug
 }
 
-/** Resolve what the footer should show while a turn runs. A compiled theme may
- *  replace the whole loader; compiled and installed themes may select artwork:
+/** The loader-relevant slice of an installed pack's assets. */
+type LoaderAssets = {
+  loaderIcons?: readonly string[]
+  loaderImages?: readonly string[]
+  hasLoaderHtml?: boolean
+}
+
+/** A theme-supplied loader image (raster art the pack ships). Decorative: no alt
+ *  text, aria-hidden, same sizing class as the mascot poses so it drops into the
+ *  carousel unchanged. */
+function loaderImageIcon(url: string): ComponentType {
+  return function LoaderImage() {
+    return <img className="kp" src={url} alt="" aria-hidden="true" draggable={false} />
+  }
+}
+
+/** The installed-pack slug behind an active theme id, or undefined for a built-in. */
+function packSlugOf(slug: string): string | undefined {
+  return slug.startsWith('custom-') ? slug.slice('custom-'.length) : undefined
+}
+
+/** Resolve what the footer should show while a turn runs. Precedence:
  *    1. `loader`               — trusted compiled component
- *    2. manifest `loaderIcons` — stock symbols selected by an installed pack
- *    3. compiled `loaderIcons` — trusted compiled artwork
- *    4. the default pool (the mascot poses)
+ *    2. pack `loader.html`     — installed pack's sandboxed custom loader (L2)
+ *    3. pack `loaderImages`    — installed pack's own raster art (L1)
+ *    4. manifest `loaderIcons` — stock symbols selected by an installed pack
+ *    5. compiled `loaderIcons` — trusted compiled artwork
+ *    6. the default pool (the mascot poses)
  *  Invalid or empty pools are ignored rather than rendering nothing. */
-export function resolveLoader(slug: string, manifestIcons?: readonly string[]):
+export function resolveLoader(slug: string, assets?: LoaderAssets):
   | { kind: 'custom'; Component: ComponentType }
+  | { kind: 'sandboxed'; src: string }
   | { kind: 'icons'; icons: ComponentType[] } {
   const branding = getThemeBranding(slug)
   if (branding?.loader) return { kind: 'custom', Component: branding.loader }
-  return { kind: 'icons', icons: resolveLoaderIcons(slug, manifestIcons) }
+  // An installed pack's own loader HTML runs sandboxed (opaque origin, overlay
+  // CSP), so it can supply arbitrary art + motion without reaching the dashboard.
+  const packSlug = packSlugOf(slug)
+  if (assets?.hasLoaderHtml && packSlug) {
+    return { kind: 'sandboxed', src: `/api/theme/${encodeURIComponent(packSlug)}/loader` }
+  }
+  return { kind: 'icons', icons: resolveLoaderIcons(slug, assets) }
 }
 
 /** The icon pool for the default carousel under a given theme. */
-export function resolveLoaderIcons(slug: string, manifestIcons?: readonly string[]): ComponentType[] {
-  const installed = resolveThemeLoaderIcons(manifestIcons)
+export function resolveLoaderIcons(slug: string, assets?: LoaderAssets): ComponentType[] {
+  // A pack's own raster art (the author's images) — backend emits 4..8 relative
+  // asset paths, resolved against the theme's asset route.
+  const packSlug = packSlugOf(slug)
+  const images = assets?.loaderImages
+  if (packSlug && images && images.length > 0) {
+    return images.map(path => loaderImageIcon(`/api/theme/${encodeURIComponent(packSlug)}/assets/${path}`))
+  }
+  const installed = resolveThemeLoaderIcons(assets?.loaderIcons)
   if (installed.length > 0) return installed
   const registered = getThemeBranding(slug)?.loaderIcons
   if (registered && registered.length > 0) return registered
   return DEFAULT_ICONS
+}
+
+/** An installed pack's sandboxed custom loader (Level 2). Renders in an
+ *  opaque-origin, script-free iframe under the loader CSP, clamped to the loader
+ *  band and click-through: it owns its CSS/SVG art and motion but can never
+ *  reach the dashboard or the network. */
+export function ThemeLoaderFrame({ src }: { src: string }) {
+  return (
+    <iframe
+      data-testid="loader-sandbox"
+      title={i18nT('pages.chat.chatFooter.theme_loader')}
+      src={src}
+      sandbox=""
+      aria-hidden="true"
+      tabIndex={-1}
+      // Empty sandbox: opaque origin AND no script permission, so a pack's
+      // loader cannot self-navigate the frame to beacon the viewer's IP/turn
+      // out of band. no-referrer additionally empties document.referrer. Motion
+      // is CSS/SVG only (the served CSP denies scripts too).
+      referrerPolicy="no-referrer"
+      style={{
+        width: 140,
+        height: 32,
+        border: 'none',
+        background: 'transparent',
+        // Opt out of the parent's color-scheme so a transparent iframe body does
+        // not composite an opaque backdrop (same fix as the overlay iframes).
+        colorScheme: 'normal',
+        pointerEvents: 'none',
+      }}
+    />
+  )
 }
 
 /**
@@ -221,10 +289,9 @@ const ChatFooter = memo(function ChatFooter({ running, stopping, state, lastRole
   useLanguageGeneration() // memo() bails out of the provider-level repaint; subscribe directly
   const slug = useThemeSlug()
   const themeState = useOptionalTheme()
-  const installedTheme = slug.startsWith('custom-')
-    ? themeState?.customThemeDataMap.get(slug.slice('custom-'.length))
-    : undefined
-  const loader = resolveLoader(slug, installedTheme?.assets?.loaderIcons)
+  const packSlug = packSlugOf(slug)
+  const installedTheme = packSlug ? themeState?.customThemeDataMap.get(packSlug) : undefined
+  const loader = resolveLoader(slug, installedTheme?.assets)
   // Text is only ACTIVELY streaming while the slot says so AND chunks keep
   // arriving. `lastRole` alone cannot tell the two apart: the trailing
   // 'streaming' message is deliberately left unfinalized across a whole tool
@@ -273,7 +340,10 @@ const ChatFooter = memo(function ChatFooter({ running, stopping, state, lastRole
             {loader.kind === 'custom'
               // The theme replaced the whole loader — it owns its size and motion.
               ? <loader.Component />
-              : <SwapCarousel icons={loader.icons} />}
+              : loader.kind === 'sandboxed'
+                // Installed pack's sandboxed loader — runs in an opaque-origin iframe.
+                ? <ThemeLoaderFrame src={loader.src} />
+                : <SwapCarousel icons={loader.icons} />}
           </ErrorBoundary>
         )}
       </div>

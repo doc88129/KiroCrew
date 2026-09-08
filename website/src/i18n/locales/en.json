@@ -6035,7 +6035,8 @@
       "chatFooter": {
         "compacting": "Compacting…",
         "killing": "Killing…",
-        "stopping": "Stopping…"
+        "stopping": "Stopping…",
+        "theme_loader": "Theme loader"
       },
       "chatNavPanel": {
         "no_links_found": "No links found",

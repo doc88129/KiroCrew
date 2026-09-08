@@ -359,6 +359,34 @@ element, and animating the icon itself would restart that animation and desync i
 from the other layer. If your loader swaps artwork on a timer, animate a stable
 wrapper for the same reason.
 
+### Installed packs: custom loader art and a sandboxed loader
+
+`registerThemeBranding()` is compiled-theme only. An **installed pack** (a
+`theme.json` dropped in via Settings) reaches the loader through **files**, not
+code:
+
+- **`loaderIcons`** — the allowlisted stock symbols (Level 1), as above.
+- **`loader/*.png` / `loader/*.webp`** — ship your **own 4–8 raster images** and
+  the stock carousel cycles them (Level 1). Raster only: SVG is refused because it
+  can carry script. Ordered by filename; each is served with a strict
+  Content-Type + `nosniff`. A count outside 4–8 fails install.
+- **`loader/loader.html`** — a **sandboxed custom loader** (Level 2) for full
+  custom art *and* motion, expressed in **CSS/SVG** (no scripts). Served at
+  `/api/theme/{slug}/loader` under a dedicated locked-down loader CSP: opaque
+  origin, **empty `sandbox`** (no `allow-scripts`), `img-src data:`,
+  `connect-src 'none'`, `media-src 'none'`, and no `script-src` — and a loader
+  carrying a `<meta http-equiv="refresh">` is refused. Scripts are denied
+  because a loader script could self-navigate the frame to beacon the viewer's
+  IP/turn-timing out of band, which `connect-src 'none'` cannot stop; motion is
+  therefore declarative. Rendered click-through and clamped to the ~32px loader
+  band, it cannot read the conversation, cookies, storage, or reach the
+  network — which is why a pack may ship arbitrary loader motion here, where the
+  trusted-origin carousel may not.
+
+Precedence, highest first: compiled `loader` → pack `loader/loader.html` → pack
+`loader/*` images → `loaderIcons` (pack manifest, then compiled) → the default
+mascot pool.
+
 Registration is read at module load (see `src/extensions.ts`); registering after
 the shell has rendered does not take effect until the next theme switch.
 

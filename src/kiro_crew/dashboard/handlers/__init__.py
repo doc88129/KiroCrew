@@ -476,6 +476,7 @@ from kiro_crew.dashboard.handlers.terminal import (  # noqa: E402, F401
 from kiro_crew.dashboard.handlers.themes import (  # noqa: E402, F401
     api_theme_asset,
     api_theme_detail,
+    api_theme_loader,
     api_theme_overlay,
     api_theme_topbar,
     api_themes,

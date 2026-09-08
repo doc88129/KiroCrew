@@ -27,3 +27,4 @@ def register(app: web.Application) -> None:
     app.router.add_get("/api/theme/{slug}/assets/{path:.+}", handlers.api_theme_asset)
     app.router.add_get("/api/theme/{slug}/overlay/{id}", handlers.api_theme_overlay)
     app.router.add_get("/api/theme/{slug}/topbar/{mode}", handlers.api_theme_topbar)
+    app.router.add_get("/api/theme/{slug}/loader", handlers.api_theme_loader)

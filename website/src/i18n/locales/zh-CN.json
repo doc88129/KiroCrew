@@ -9017,7 +9017,8 @@
       "chatFooter": {
         "compacting": "压缩中…",
         "killing": "正在终止…",
-        "stopping": "正在停止…"
+        "stopping": "正在停止…",
+        "theme_loader": "主题加载动画"
       },
       "chatNavPanel": {
         "link": "链接",
