@@ -29,7 +29,6 @@ import { i18nT } from '../i18n/t'
 const apiMocks = vi.hoisted(() => ({
   chatSlotDetail: vi.fn(),
   sendChat: vi.fn(),
-  steerChat: vi.fn(),
   resolveApproval: vi.fn(),
   createChatSlot: vi.fn(),
 }))
@@ -144,7 +143,6 @@ beforeEach(() => {
   HTMLCanvasElement.prototype.getContext = vi.fn(stubCtx) as unknown as HTMLCanvasElement['getContext']
   apiMocks.chatSlotDetail.mockResolvedValue({ messages: [] })
   apiMocks.sendChat.mockResolvedValue({ ok: true, json: vi.fn().mockResolvedValue({ ok: true }) })
-  apiMocks.steerChat.mockResolvedValue({})
   apiMocks.resolveApproval.mockResolvedValue({})
   apiMocks.createChatSlot.mockResolvedValue({})
 })
@@ -521,8 +519,9 @@ describe('useSceneInteraction — composer', () => {
     fireEvent.click(sendButton())
     await flush()
 
-    expect(apiMocks.sendChat).toHaveBeenCalledWith('ship it', 'a')
-    expect(apiMocks.steerChat).not.toHaveBeenCalled()
+    // Through the chat-core transport: (message, slot, colorTheme, deadline
+    // signal, meta, steer). An idle agent is a plain send, not a steer.
+    expect(apiMocks.sendChat).toHaveBeenCalledWith('ship it', 'a', undefined, expect.any(AbortSignal), undefined, false)
     expect(screen.getByText('ship it')).toBeInTheDocument()
     expect(
       screen.getByRole('button', { name: i18nT('hooks.useSceneInteraction.message_sent') }),
@@ -544,8 +543,53 @@ describe('useSceneInteraction — composer', () => {
     fireEvent.click(sendButton())
     await flush()
 
-    expect(apiMocks.steerChat).toHaveBeenCalledWith('stop there', 'a')
-    expect(apiMocks.sendChat).not.toHaveBeenCalled()
+    // Same transport call, `steer: true`: a flag of the endpoint, not a
+    // separate helper (the dedicated steer helper is gone).
+    expect(apiMocks.sendChat).toHaveBeenCalledWith('stop there', 'a', undefined, expect.any(AbortSignal), undefined, true)
+  })
+
+  it('a refused steer reports on the composer like a refused send', async () => {
+    apiMocks.sendChat.mockResolvedValue({ ok: true, json: vi.fn().mockResolvedValue({ ok: false, error: 'turn already ended' }) })
+    renderScene({ sources: [source({ id: 'slot-a', running: true })] })
+    await clickAt(100, 100)
+
+    fireEvent.change(messageBox(), { target: { value: 'stop there' } })
+    fireEvent.click(sendButton())
+    await flush()
+
+    expect(
+      screen.getByRole('button', { name: i18nT('hooks.useSceneInteraction.retry_sending_message') }),
+    ).toBeInTheDocument()
+    expect(messageBox()).toHaveValue('stop there')
+  })
+
+  it('a send whose receipt is late gets NEITHER verdict — delivery is indeterminate', async () => {
+    // The transport's deadline fires before any receipt. The request may have
+    // been taken, so 'failed' would invite a duplicate and 'sent' would claim a
+    // delivery nothing proves; the composer drops back to idle, payload not
+    // restored, like the unreadable-2xx case.
+    apiMocks.sendChat.mockImplementation((...args: unknown[]) => new Promise((_res, rej) => {
+      const signal = args[3] as AbortSignal
+      signal.addEventListener('abort', () => rej(new DOMException('aborted', 'AbortError')))
+    }))
+    renderScene({ sources: [] })
+    await clickAt(100, 100)
+
+    fireEvent.change(messageBox(), { target: { value: 'ship it' } })
+    fireEvent.click(sendButton())
+    await flush()
+    await act(async () => { vi.advanceTimersByTime(10_500) })
+    await flush()
+
+    expect(
+      screen.queryByRole('button', { name: i18nT('hooks.useSceneInteraction.retry_sending_message') }),
+    ).not.toBeInTheDocument()
+    expect(
+      screen.queryByRole('button', { name: i18nT('hooks.useSceneInteraction.message_sent') }),
+    ).not.toBeInTheDocument()
+    expect(messageBox()).toHaveValue('')
+    expect(screen.queryByText('ship it')).not.toBeInTheDocument()
+    expect(sendButton()).toBeInTheDocument()
   })
 
   it('uses the plain message placeholder with no live source', async () => {

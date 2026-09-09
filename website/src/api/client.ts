@@ -3202,26 +3202,17 @@ export const api = {
     // whenever Browser Mode is enabled in Settings (a durable capability),
     // gated there rather than per turn.
     //
-    // `steer` carries the user's "act on this now" intent into a send that
-    // starts its OWN turn. The slot is idle, so there is no running turn to
-    // inject into; the flag's only effect server-side is to skip the hold that
-    // parks a user message behind still-running sub-agents. Sent through this
-    // endpoint rather than steerChat because a new turn needs `ws=1` to stream.
+    // `steer` carries the user's "act on this now" intent. Mid-turn it injects
+    // into the RUNNING turn instead of queueing (the backend falls back to the
+    // queue if steer is unavailable, so the text is never dropped, and answers
+    // `{ok, steered}`); on an idle slot there is no running turn to inject into
+    // and the flag's only effect server-side is to skip the hold that parks a
+    // user message behind still-running sub-agents. One wire for both: this is
+    // the fetch seam under the chat-core `sendTurn`, which every steer now
+    // rides (there is no separate steer helper).
     const themeConsent = themeConsentSha(colorTheme)
     return fetch('/api/chat?ws=1', { method: 'POST', headers: { 'Content-Type': 'application/json', ..._sk }, body: JSON.stringify({ message, slot, ...(colorTheme ? { color_theme: colorTheme } : {}), ...(themeConsent ? { theme_consent_sha: themeConsent } : {}), ...(meta ? { meta } : {}), ...(steer ? { steer: true } : {}) }), signal })
   },
-  // Mid-turn steer: inject into the RUNNING turn instead of queueing. Fire-and-forget
-  // JSON response ({ok, steered}); the backend falls back to queue if steer is
-  // unavailable so the text is never dropped.
-  // `ws=1` because a steer that races `chat_done` falls through to the plain send
-  // path, whose JSON receipt is gated on it — without it that arm streams SSE.
-  // `sendId` is the client-minted correlation id stamped on the optimistic steer
-  // bubble (same convention as the plain send path). It rides in `meta`, which
-  // BOTH backend paths persist — the accepted-steer row and the new-turn row a
-  // steer that races chat_done falls onto — so the bubble is reconcilable, and
-  // its accepted-vs-new-turn ambiguity resolvable, by id identity (#6075).
-  steerChat: (message: string, slot?: string, sendId?: string) =>
-    fetch('/api/chat?ws=1', { method: 'POST', headers: { 'Content-Type': 'application/json', ..._sk }, body: JSON.stringify({ message, slot, steer: true, ...(sendId ? { meta: { sendId } } : {}) }) }).then(j),
   sessionsHealth: () => fetch('/api/sessions/health').then(j),
   // Knowledge
   knowledgeSearch: (q: string) => get(`/api/knowledge/search-for-context?q=${encodeURIComponent(q)}`).then(j),

@@ -1126,12 +1126,6 @@ describe('sendChat theme consent', () => {
     })
     expect(call().init?.signal).toBe(ctl.signal)
   })
-
-  it('steerChat always injects into the running turn', async () => {
-    await api.steerChat('now', 'chat-1')
-    expect(call().url).toBe('/api/chat?ws=1')
-    expect(call().body).toEqual({ message: 'now', slot: 'chat-1', steer: true })
-  })
 })
 
 /* ─────────────── 3. the non-trivial method implementations ─────────────── */

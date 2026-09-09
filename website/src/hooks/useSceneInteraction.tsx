@@ -4,7 +4,7 @@ import { useNavigate } from 'react-router-dom'
 import { useAppDispatch } from '../store'
 import { switchSlot } from '../store/chatSlice'
 import { api } from '../api/client'
-import { readSendReceipt } from '../utils/sendDelivery'
+import { sendTurn } from '../chat-core/transport/sendTurn'
 import type { AgentSource } from './useAgentSync'
 import { useImeGuard } from './useImeGuard'
 import { KIRO_GHOST_PIXELS } from './sceneText'
@@ -338,61 +338,63 @@ export function useSceneInteraction(
         return [keep, msg].join(' ')
       })
     }
-    try {
-      const src = sourceFor(agent)
-      if (src?.running) {
-        // Mid-turn: steer the running turn (backend queues if steer unavailable).
-        // steerChat parses through `j`, which throws on an HTTP error, so the
-        // catch below covers both failure shapes for this branch.
-        await api.steerChat(msg, slotKey)
-      } else {
-        // Idle or waiting for input: start/continue the turn. `?ws=1` answers
-        // with a JSON receipt ({ok, queued, error}) and the turn itself streams
-        // over WS. An HTTP 4xx/5xx RESOLVES rather than rejecting, so the
-        // receipt must be read: without this check every refused send fell
-        // through to 'sent' below — the state asserting the opposite of what
-        // happened, for precisely the errors that matter.
-        const r = await api.sendChat(msg, slotKey)
-        const { body, outcome } = await readSendReceipt(r)
-        if (outcome === 'refused') {
-          reportFailedSend(typeof body.error === 'string' ? body.error : undefined)
-          return
-        }
-        if (outcome === 'unknown') {
-          // A 2xx whose body would not parse says the request was ACCEPTED and
-          // only its answer is mangled, so this send may well be running. It
-          // gets neither verdict: 'failed' would hand the payload back and
-          // invite a retry that duplicates a delivered turn, and the 'sent' tick
-          // plus the mini-thread echo below would assert a delivery nothing
-          // proves. The composer drops back to idle with whatever newer text it
-          // holds, the same silence the other send paths keep for this state.
-          if (sameComposer()) setSendState('idle')
-          return
-        }
-      }
-      lastSentRef.current = { slotKey, content: msg, at: Date.now() }
-      // Composer state belongs to the composer open NOW: after a mid-flight
-      // retarget — or a close-and-reopen of the same agent — the state is a
-      // NEW composer's, and an older send may not acknowledge into it. The
-      // draft is NOT cleared here: it was cleared at send start, so whatever
-      // it holds now was typed while this send was in flight and is newer
-      // work an acceptance must not erase.
-      if (sameComposer()) {
-        setSendState('sent')
-        // Reset only if the tick still shows: a later send (same agent or a
-        // retargeted popover) has moved the state to 'sending'/'failed' by the
-        // time this fires, and an unconditional reset would re-enable submit
-        // while that request is still in flight (review finding on #4198).
-        setTimeout(() => setSendState(s => (s === 'sent' ? 'idle' : s)), 1500)
-      }
-      // Optimistically append to the mini thread — only on acceptance: an
-      // echo of a message the server refused would assert it was delivered.
-      setThreadView(tv => tv && tv.agent.id === agent.id
-        ? { ...tv, messages: [...tv.messages, { role: 'user', content: msg }].slice(-THREAD_VIEW_MESSAGES) }
-        : tv)
-    } catch {
-      reportFailedSend()
+    // One transport call for both branches. Mid-turn the message is a STEER --
+    // "act on this now", injected into the running turn (the backend queues it
+    // if steer is unavailable) -- and idle it starts or continues the turn;
+    // `steer` is a flag of the same endpoint, not a different receipt shape.
+    // The chat-core transport owns the receipt contract (`?ws=1` JSON receipt,
+    // HTTP 4xx/5xx RESOLVE rather than reject, deadline) and never rejects, so
+    // every outcome is branched on below. Without a receipt read every refused
+    // send fell through to 'sent' -- the state asserting the opposite of what
+    // happened, for precisely the errors that matter.
+    const src = sourceFor(agent)
+    const receipt = await sendTurn({ message: msg, slot: slotKey, steer: !!src?.running })
+    switch (receipt.status) {
+      case 'refused':
+        // The server said no; nothing was sent, so the payload is safe to hand back.
+        reportFailedSend(receipt.reason)
+        return
+      case 'transport-error':
+        // The request never left (offline, DNS): restore-and-report is safe.
+        reportFailedSend()
+        return
+      case 'unknown':
+      case 'response-late':
+        // Indeterminate. `unknown` is a 2xx whose body would not parse: the
+        // request was ACCEPTED and only its answer is mangled, so this send may
+        // well be running. `response-late` is the deadline firing before any
+        // receipt: delivery is not known either way. Neither gets a verdict:
+        // 'failed' would hand the payload back and invite a retry that
+        // duplicates a delivered turn, and the 'sent' tick plus the mini-thread
+        // echo below would assert a delivery nothing proves. The composer drops
+        // back to idle with whatever newer text it holds, the same silence the
+        // other send paths keep for these states.
+        if (sameComposer()) setSendState('idle')
+        return
+      case 'dispatched':
+      case 'queued':
+        break
     }
+    lastSentRef.current = { slotKey, content: msg, at: Date.now() }
+    // Composer state belongs to the composer open NOW: after a mid-flight
+    // retarget — or a close-and-reopen of the same agent — the state is a
+    // NEW composer's, and an older send may not acknowledge into it. The
+    // draft is NOT cleared here: it was cleared at send start, so whatever
+    // it holds now was typed while this send was in flight and is newer
+    // work an acceptance must not erase.
+    if (sameComposer()) {
+      setSendState('sent')
+      // Reset only if the tick still shows: a later send (same agent or a
+      // retargeted popover) has moved the state to 'sending'/'failed' by the
+      // time this fires, and an unconditional reset would re-enable submit
+      // while that request is still in flight (review finding on #4198).
+      setTimeout(() => setSendState(s => (s === 'sent' ? 'idle' : s)), 1500)
+    }
+    // Optimistically append to the mini thread — only on acceptance: an
+    // echo of a message the server refused would assert it was delivered.
+    setThreadView(tv => tv && tv.agent.id === agent.id
+      ? { ...tv, messages: [...tv.messages, { role: 'user', content: msg }].slice(-THREAD_VIEW_MESSAGES) }
+      : tv)
   }, [])
 
   const resolvePendingApproval = useCallback(async (agent: SceneAgent, action: 'approve' | 'reject') => {
