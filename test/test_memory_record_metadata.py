@@ -606,7 +606,7 @@ def test_outbound_redaction_discovers_both_extension_tables(store, tmp_path):
     secret = "ghp_" + "A" * 36
     fact(store)
     # Historical/proposed and metadata strings must be scanned even when current
-    # live content is clean. The generic schema walker needs no table whitelist.
+    # live content is clean. The generic schema walker needs no table allowlist.
     store.db.execute("UPDATE memory_revisions SET before_json=?", (json.dumps({"note": secret}),))
     store.db.execute("UPDATE memory_record_meta SET source_ref=?", (secret,))
     store.db.commit()

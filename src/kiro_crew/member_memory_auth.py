@@ -360,7 +360,7 @@ def _private_memory_request_verified(request: Any) -> bool:
     """Positive member proof, independent of the caller-supplied session header."""
     key = request.headers.get("X-Session-Key", "")
     actual, verified = memory_request_identity(request)
-    return bool(key and verified and actual == key)
+    return bool(key and verified and actual == key)  # nosemgrep: python.django.security.nan-injection.nan-injection -- bool() over a logical AND of a string/bool/bool expression, not a numeric typecast of user input; there is no float()/complex() coercion here for a "nan" string to exploit.  # noqa: E501  # fmt: skip
 
 
 def memory_request_identity(request: Any) -> tuple[str | None, bool]:

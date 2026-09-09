@@ -568,98 +568,6 @@ Silos get exactly the same treatment as `~/.aws` and the governance keystone her
 this is consistent rather than a silo-specific hole. Whether it is *sufficient* for a
 silo is the open question in item 7.
 
-## 12. Operating instructions for the next session
-
-### Where things are
-
-| | |
-|---|---|
-| Worktree | `/workplace/bolichen/kirocrew-wt-memory-v2-ui` |
-| Branch | `feat/memory-v2-ui` |
-| Pre-rebase backup tag | `mv2-ui-prerebase-backup` |
-| Python | `/workplace/bolichen/kc-venv-mv2ui/bin/python` (3.12) |
-| Node | `export PATH=/workplace/bolichen/node22/bin:$PATH` |
-
-**The system interpreters do not work.** `python3` is 3.9 (repo needs ≥ 3.10) and
-`node` is 18, on which **vitest cannot start at all** (its worker `execArgv` carries
-`--no-experimental-webstorage`, which Node 18 rejects) — it fails to launch rather
-than failing a test.
-
-**Do not put anything you need under `/tmp`.** It is reaped mid-session on this host;
-it already took out the only interpreter with dependencies.
-
-### The gates
-
-```bash
-cd /workplace/bolichen/kirocrew-wt-memory-v2-ui
-PY=/workplace/bolichen/kc-venv-mv2ui/bin/python
-
-$PY scripts/check_black_formatting.py && $PY scripts/check_subprocess_encoding.py
-$PY -m isort --check-only src/kiro_crew test
-$PY -m flake8 src/kiro_crew test
-$PY -m mypy --platform linux src/kiro_crew
-bash scripts/docs-lint.sh
-HARNESS_BASE_REF=origin/main $PY scripts/check_harness_parity.py
-BRAND_BASE_REF=origin/main   $PY scripts/check_brand_name.py
-FEATURE_MAP_BASE_REF=origin/main $PY scripts/check_feature_map.py
-$PY scripts/check_memory_store_seam.py     # exit 0; its output is the known backlog
-```
-
-Targeted tests — **not** the full suite:
-
-```bash
-$PY -m pytest test/test_memory_store_dashboard.py test/test_memory_v2_schema.py \
-  test/test_memory_v2_isolation.py test/test_memory_v2_facet_read.py \
-  test/test_memory_backup.py test/test_memory_lineage_drift.py \
-  test/test_memory_store_seam.py test/test_episodic_retirement.py \
-  test/test_scan_memory_stores.py test/test_memory_v1_golden.py \
-  test/test_handlers_memory_coverage.py -q -p no:cacheprovider
-```
-
-Frontend:
-
-```bash
-cd website && export PATH=/workplace/bolichen/node22/bin:$PATH
-npx tsc -b && npm run build
-I18N_BASE_REF=origin/main npm run i18n:check    # 19 checks, all must pass
-npx vitest run src/test/
-```
-
-### `test_memory_v1_golden.py` is the acceptance proof
-
-It must pass **unedited**. If it fails, that is the most important finding available —
-it means the default store moved. **Do not edit it to make it pass.**
-
-### Known non-blocking gate failures
-
-* `scripts/scrub-lint.sh` fails on a **pre-existing** violation in
-  `test/test_atomic_write_named_duplicates.py` (`/home/tést`, a deliberate non-ASCII
-  byte fixture). The file is byte-identical to `origin/main`. It needs an allowlist
-  entry from whoever added it, not a fix here.
-* `check_changelog_history.py` fails only with `CHANGELOG_BASE_REF=origin/main` while
-  the branch is behind: `[0.6.0]` shipped upstream after the merge-base. `CHANGELOG.md`
-  is byte-identical to the merge-base and no branch commit touches it. **This feature
-  branch must not touch `CHANGELOG.md`** — the release PR writes that section.
-
-### Notes on the rebase
-
-The branch was squashed to one commit and rebased over **609** upstream commits. Two
-upstream sweeps caused most of the conflicts and both are preserved:
-
-* `src/kiro_crew/security.py` became the package `src/kiro_crew/security/`. The
-  multi-store `scan_memory` block was re-spliced into `security/__init__.py`.
-* The user-facing term **"crew" was renamed to "agent"** (32 → 0 in the agents page
-  catalog). Any new user-facing string must say "agent".
-
-The i18n catalogs were resolved by a **semantic three-way JSON merge** (base /
-upstream / ours) rather than textually. Three keys were edited by *both* sides —
-upstream's edit was the terminology rename, ours was a factual correction (upstream's
-copy still said isolated per-crew memory "is still being built", which is now false).
-Both intents were merged, not chosen between.
-
-**If this branch waits, the next rebase costs more.** It went from 390 to 609 commits
-behind in under a day.
-
 ## 13. File map
 
 One commit: 143 files, +27,039 / −853, of which 30 are new.
@@ -831,20 +739,22 @@ across the memory suite; 25,537 frontend tests across 1,602 files; mypy clean on
 files; flake8, isort, black, subprocess-encoding, docs-lint, harness-parity, brand,
 feature-map and memory-store-seam all green; 19/19 i18n checks against `origin/main`.
 
-Two known gate failures that are **not** this branch's to fix: `scrub-lint.sh` on a
-pre-existing non-ASCII fixture, and `check_changelog_history.py` when the branch is
-behind. Both are explained in §12.
+Two known gate failures that were not this branch's to fix at push time:
+`scrub-lint.sh` on a pre-existing non-ASCII fixture in
+`test/test_atomic_write_named_duplicates.py`, byte-identical to `origin/main`; and
+`check_changelog_history.py` failing only with `CHANGELOG_BASE_REF=origin/main`
+while the branch was behind (`CHANGELOG.md` is byte-identical to the merge-base
+and no branch commit touches it — the release PR writes that section).
 
 
 ## 19. Pickup on 2026-09-07
 
 Fetched `kirodotdev/KiroCrew` and checked out the actual remote branch
 `origin/feat/memory-v2-ui` at `9bfce861ee81e0176f2c1935585dbc6e51cee90d`
-in a separate worktree:
-`C:/Users/bolic/OneDrive/Documents/New project/kirocrew-wt-memory-v2-ui`.
-The original checkout is untouched. At pickup, `origin/main` was `2847b5b2d` and
-was 68 commits ahead of this branch's merge base; this worktree is one feature
-commit ahead. Main has not been merged or rebased into it.
+in a separate worktree. The original checkout is untouched. At pickup,
+`origin/main` was `2847b5b2d` and was 68 commits ahead of this branch's merge
+base; this worktree is one feature commit ahead. Main has not been merged or
+rebased into it.
 At the final status check the shared `origin/main` ref had advanced to `678fc3266`
 (71 commits ahead of this branch's merge base). The feature branch still exactly
 matches `origin/feat/memory-v2-ui`; the pickup changes are in its working tree.

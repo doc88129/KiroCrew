@@ -81,14 +81,14 @@ export const CHUNK_BUDGETS = {
   // adding ~40 keys (#8307) trips it on its merge ref while main's own gate
   // stays green, so the ceiling moves back to the 5% convention.
   //
-  // Re-measured again after rebasing this PR onto that main: the V1/V2
+  // Re-measured again after rebasing this PR onto main @ 2cb735766: the V1/V2
   // memory editor, ownership, conflict-review and recovery copy adds English
-  // UI text on top of main's own growth. English stays synchronous by the
-  // i18n owner contract; deferring these labels would flash keys on first
-  // render. Restore the same ~5% headroom convention for this head's
-  // measured catalog size (see the PLACEHOLDER note below -- re-measure and
-  // replace before merge).
-  t: 826 * KB, // PLACEHOLDER pending fresh measurement on this head (~5% headroom over main-with-V1/V2-copy)
+  // UI text on top of main's own growth. head afe9da893 builds the chunk at
+  // 805,376 B (786.5 KB), still the same 12-module runtime/catalog graph.
+  // English stays synchronous by the i18n owner contract; deferring these
+  // labels would flash keys on first render. Restore the same ~5% headroom
+  // convention for this measured catalog growth only.
+  t: 826 * KB, // measured 786.5 KB on head afe9da893 with V1/V2 memory copy (~5% headroom)
 
   // Pierre editor implementation (PR #4072 replaced Monaco, whose
   // 'editor.api2' chunk this entry set used to carry) -- the code-editor

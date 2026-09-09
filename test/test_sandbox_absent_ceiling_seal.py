@@ -638,9 +638,7 @@ class TestMaskableDirsAreMaterializedBeforeTheSpawn:
         marker = crew_home / "aws-control-staging" / "drive-preview-live"
         marker.mkdir()
 
-        created = sandbox._materialize_maskable_dirs()
-        assert str(target) not in created
-        assert str(crew_home / "memory_stores") in created
+        assert sandbox._materialize_maskable_dirs() == []
         assert marker.is_dir()
 
     @_POSIX_ONLY

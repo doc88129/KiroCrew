@@ -510,7 +510,7 @@ class TestOwnerOnlyDirectories:
         """
         home = config_dir()
         assert not (home / MEMORY_DB_FILE).exists()
-        os.chmod(home, 0o755)
+        os.chmod(home, 0o755)  # nosemgrep: python.lang.security.audit.insecure-file-permissions.insecure-file-permissions -- deliberately weakens the mode first so the assertion below can prove ensure_data_home() re-tightens it to 0o700; the weak mode is never the resting state.  # noqa: E501  # fmt: skip
         assert ensure_data_home() == home
         assert stat.S_IMODE(os.stat(home).st_mode) == 0o700
 
