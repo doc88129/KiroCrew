@@ -2867,6 +2867,15 @@
       "turn_on": "Turn this preview on",
       "screenshot_badge": "Screenshot",
       "is_on": "This preview is on — turning it off only hides it; nothing you made is lost"
+    },
+    "advisorOverrideControl": {
+      "advisor": "Advisor",
+      "advisor_mode": "Advisor mode",
+      "helper": "Reviews this session with a second model and flags issues while you work.",
+      "inherit": "Inherit",
+      "on": "Enabled",
+      "off": "Disabled",
+      "update_failed": "Could not update Advisor."
     }
   },
   "hooks": {
@@ -3659,6 +3668,14 @@
       },
       "pins": {
         "copy_failed": "Copy failed"
+      },
+      "advisorMessage": {
+        "advisor": "Advisor",
+        "nit": "Nit",
+        "concern": "Concern",
+        "blocker": "Blocker",
+        "saved_for_next_turn": "Saved for next turn",
+        "evidence": "Evidence"
       }
     },
     "chatPage": {
@@ -5096,7 +5113,19 @@
         "failed_to_save_fallback_model": "Failed to save fallback model",
         "session_card_source_links": "PR and Issue Chips on Session Cards",
         "session_card_source_links_desc": "Show a chip on each session's sidebar card for every pull request, merge request and issue mentioned in that session. Turning it off also stops the periodic provider calls that keep those chips up to date.",
-        "failed_to_load_tips_preference": "Failed to load tips preference."
+        "failed_to_load_tips_preference": "Failed to load tips preference.",
+        "advisor": "Advisor",
+        "enable_advisor": "Enable Advisor",
+        "enable_advisor_description": "An opt-in second model reviews sessions at checkpoints and flags issues. Off by default; override it per session in the model popover.",
+        "reviewer_model": "Reviewer model",
+        "empty_uses_the_default_model": "Empty uses the default model",
+        "non_blocker_budget": "Non-blocker budget",
+        "non_blocker_budget_description": "Maximum nit and concern notes per review update.",
+        "interruption_cooldown_seconds": "Interruption cooldown (seconds)",
+        "interruption_cooldown_description": "Minimum gap between Advisor interruptions.",
+        "include_reasoning": "Include reasoning",
+        "include_reasoning_description": "Also let the reviewer see the primary model's redacted reasoning.",
+        "failed_to_save_advisor_setting": "Failed to save Advisor setting"
       },
       "displayPanel": {
         "color": "Color {{n}}",

@@ -216,6 +216,19 @@ def update_reasoning_effort_values(acp_levels: list[str]) -> None:
         _reasoning_effort_ordered = ordered
 
 
+def _validate_advisor_override(raw: object) -> str:
+    """Persisted advisor override, collapsed to the closed set.
+
+    ``inherit`` is the fallback for anything unrecognized: a malformed disk
+    value must never silently enable the advisor.
+    """
+    if isinstance(raw, str) and raw in ("inherit", "on", "off"):
+        return raw
+    if raw is not None:
+        logger.warning("Discarding invalid persisted advisor_override: %r", raw)
+    return "inherit"
+
+
 def _validate_reasoning_effort(raw: object) -> str:
     """Return *raw* if it's a valid reasoning_effort string, else "".
 
@@ -966,6 +979,10 @@ def _rehydrate_slot_from_history(
                 )
         if meta.get("reasoning_effort"):
             slot.reasoning_effort = _validate_reasoning_effort(meta["reasoning_effort"])
+        if "advisor_override" in meta:
+            # Key presence, not truthiness: an explicit malformed/empty value
+            # collapses to "inherit" rather than being skipped.
+            slot.advisor_override = _validate_advisor_override(meta["advisor_override"])
         if meta.get("autocompact_pct") is not None:
             slot.autocompact_pct = _validate_autocompact_pct(meta["autocompact_pct"])
         if meta.get("workspace"):
@@ -1528,6 +1545,10 @@ def _apply_recent_session(
             logger.debug("Failed to resolve model for restored slot %s", slot_name, exc_info=True)
     if meta.get("reasoning_effort"):
         slot.reasoning_effort = _validate_reasoning_effort(meta["reasoning_effort"])
+    if "advisor_override" in meta:
+        # Key presence, not truthiness: an explicit malformed/empty value
+        # collapses to "inherit" rather than being skipped.
+        slot.advisor_override = _validate_advisor_override(meta["advisor_override"])
     if meta.get("autocompact_pct") is not None:
         slot.autocompact_pct = _validate_autocompact_pct(meta["autocompact_pct"])
     if meta.get("workspace"):
@@ -2821,6 +2842,7 @@ def _save_slot_to_history(
                     "mode": slot.mode or "",
                     "artifact": slot._artifact or "",
                     "reasoning_effort": slot.reasoning_effort or "",
+                    "advisor_override": slot.advisor_override,
                     "color_index": slot.color_index,
                     "color_hex": slot.color_hex or "",
                     "color_theme": slot.color_theme or "",
@@ -3152,6 +3174,9 @@ def _save_slot_to_history(
             meta_line["model"] = slot.model
             if slot.reasoning_effort:
                 meta_line["reasoning_effort"] = slot.reasoning_effort
+            # Unconditional: "inherit" is a non-empty CLEAR value that must
+            # overwrite an older persisted "on"/"off".
+            meta_line["advisor_override"] = slot.advisor_override
             # Unconditional, matching the empty-window merge mirror: None is
             # the cleared "follow the global" value, not an absent field.
             meta_line["autocompact_pct"] = slot.autocompact_pct

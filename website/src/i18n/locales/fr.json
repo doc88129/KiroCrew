@@ -8217,6 +8217,15 @@
       "turn_on": "Activer cet aperçu",
       "screenshot_badge": "Capture d’écran",
       "is_on": "Cet aperçu est activé — le désactiver ne fait que le masquer, rien de ce que tu as créé n’est perdu"
+    },
+    "advisorOverrideControl": {
+      "advisor": "Conseiller",
+      "advisor_mode": "Mode du conseiller",
+      "helper": "Examine cette session avec un second modèle et signale les problèmes pendant que tu travailles.",
+      "inherit": "Hériter",
+      "on": "Activé",
+      "off": "Désactivé",
+      "update_failed": "Impossible de mettre à jour le conseiller."
     }
   },
   "hooks": {
@@ -9293,7 +9302,8 @@
         "needs_earlier_history_count_many": "Sélectionnez pour charger l’historique antérieur – {{count}} messages antérieurs restants",
         "needs_earlier_history_count_other": "Sélectionnez pour charger l’historique antérieur – {{count}} messages antérieurs restants",
         "share_message": "Partager en image",
-        "copy_failed": "Échec de la copie"
+        "copy_failed": "Échec de la copie",
+        "advisorDiscarded": "Rejeté"
       },
       "chatFooter": {
         "compacting": "Compactage…",
@@ -9812,6 +9822,14 @@
         "copy_text_failed": "Échec de la copie",
         "copy_text_unavailable": "Le presse-papiers est bloqué ici. Le texte de ta publication est sélectionné — appuie sur Ctrl+C / ⌘C. Le texte de la carte que tu as modifié se copie depuis la carte elle-même.",
         "export_failed": "Impossible de générer la carte de partage"
+      },
+      "advisorMessage": {
+        "advisor": "Conseiller",
+        "nit": "Conseil mineur",
+        "concern": "Point d’attention",
+        "blocker": "Bloquant",
+        "saved_for_next_turn": "Enregistré pour le prochain tour",
+        "evidence": "Preuves"
       }
     },
     "chatPage": {
@@ -12825,6 +12843,18 @@
         "other": "Autre",
         "pin_last_prompt": "Épingler le dernier tour",
         "pin_last_prompt_desc": "Gardez le tour le plus récent visible sous forme de bannière fixe lorsqu’il défile au-dessus de la zone visible.",
+        "advisor": "Conseiller",
+        "enable_advisor": "Activer le conseiller",
+        "enable_advisor_description": "Un second modèle facultatif examine les sessions aux points de contrôle et signale les problèmes. Désactivé par défaut, il peut être remplacé par session dans le menu contextuel du modèle.",
+        "reviewer_model": "Modèle de révision",
+        "empty_uses_the_default_model": "Vide utilise le modèle par défaut",
+        "non_blocker_budget": "Quota de remarques non bloquantes",
+        "non_blocker_budget_description": "Nombre maximal de remarques mineures et de préoccupations par mise à jour de révision.",
+        "interruption_cooldown_seconds": "Délai entre interruptions (secondes)",
+        "interruption_cooldown_description": "Intervalle minimal entre les interruptions du conseiller.",
+        "include_reasoning": "Inclure le raisonnement",
+        "include_reasoning_description": "Permettre aussi au modèle de révision de voir le raisonnement expurgé du modèle principal.",
+        "failed_to_save_advisor_setting": "Impossible d’enregistrer le réglage du conseiller",
         "power": "Alimentation",
         "prevent_sleep_while_running": "Empêcher la veille pendant l'exécution",
         "product_manager": "Chef de produit",

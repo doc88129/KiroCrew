@@ -1884,6 +1884,24 @@ _EDITABLE_CONFIG: dict[str, dict] = {
         "min": SOFT_STOP_BUDGET_MIN,
         "max": SOFT_STOP_BUDGET_MAX,
     },
+    # Advisor (opt-in cross-model session reviewer). Every advisor.* key is
+    # dashboard-editable so the feature is fully configurable without hand-
+    # editing config.json; a successful patch re-applies to the live service
+    # below (config is otherwise only read at gateway startup).
+    "advisor.enabled": {"type": "bool"},
+    # Reviewer model id; "" selects the runtime default. Not validated against
+    # a fixed list for the same reason as agent.model above.
+    # MODEL_ID_RE's grammar (validation.py): runtime construction enforces it,
+    # so the write gate must not admit an id the runtime will reject. Empty
+    # stays valid -- it means "inherit the gateway default model".
+    "advisor.model": {
+        "type": "str",
+        "max_len": 64,
+        "pattern": r"^(|[a-zA-Z0-9][a-zA-Z0-9._-]{0,63})$",
+    },
+    "advisor.non_blocker_budget": {"type": "int", "min": 0, "max": 50},
+    "advisor.cooldown_secs": {"type": "float", "min": 0, "max": 3600},
+    "advisor.include_reasoning": {"type": "bool"},
     "session.timeout_secs": {"type": "int", "min": SESSION_TIMEOUT_MIN, "max": SESSION_TIMEOUT_MAX},
     # Range shared with the load-time clamp in config/loader.py — one constant
     # pair, so the write gate and the load path cannot drift.
@@ -2395,6 +2413,17 @@ async def api_kirocrew_config_patch(request: web.Request) -> web.Response:
     _log_sel("success", f"{path_key}={value}")
 
     cfg = KiroCrewConfig.load()
+
+    # Advisor settings apply live: the service otherwise reads config only at
+    # gateway startup, and a settings toggle that waits for a restart reads
+    # as broken. Total -- a failure here leaves the persisted value correct.
+    if path_key.startswith("advisor."):
+        try:
+            from kiro_crew.advisor.service import configure_from_config
+
+            configure_from_config(cfg)
+        except Exception:
+            logger.warning("advisor config re-apply failed", exc_info=True)
 
     # If provider changed, reload the factory so new sessions use the new provider
     if path_key == "agent.provider":

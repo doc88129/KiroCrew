@@ -1226,6 +1226,8 @@ def _build_token_record(
     ctx_blocks: dict[str, int] | None = None,
     phase: str = "",
     app: str = "",
+    parent_session_key: str = "",
+    advisor_update_id: str = "",
 ) -> dict[str, Any]:
     """Build the JSONL token-usage record dict (no I/O).
 
@@ -1272,7 +1274,7 @@ def _build_token_record(
     # can be joined against the row's ``agent`` field retroactively — this is
     # where per-agent stall analysis happens, deliberately NOT on metric attrs.
     _stop = getattr(event, "stop_reason", "")
-    return {
+    record: dict[str, Any] = {
         "_type": "tokens",
         "ts": now.isoformat(),
         "slot": slot_key,
@@ -1308,6 +1310,13 @@ def _build_token_record(
         # can't break json.dumps.
         "stop_reason": _stop if isinstance(_stop, str) else "",
     }
+    # Additive advisor correlation (reviewer rows only): both keys are OMITTED
+    # when empty so every existing caller's row keeps its exact key set.
+    if parent_session_key:
+        record["parent_session_key"] = str(parent_session_key)
+    if advisor_update_id:
+        record["advisor_update_id"] = str(advisor_update_id)
+    return record
 
 
 def _finite_only(record: dict[str, Any]) -> dict[str, Any]:
@@ -1378,6 +1387,8 @@ def persist_token_record(
     phase: str = "",
     app: str = "",
     model_source: object = None,
+    parent_session_key: str = "",
+    advisor_update_id: str = "",
 ) -> None:
     """Append a token usage record to today's shard under
     ``<data home>/usage/tokens/YYYY-MM-DD.jsonl`` (synchronous).
@@ -1425,6 +1436,8 @@ def persist_token_record(
                 ctx_blocks=ctx_blocks,
                 phase=phase,
                 app=app,
+                parent_session_key=parent_session_key,
+                advisor_update_id=advisor_update_id,
             ),
             now,
         )
@@ -1447,6 +1460,8 @@ async def persist_token_record_async(
     phase: str = "",
     app: str = "",
     model_source: object = None,
+    parent_session_key: str = "",
+    advisor_update_id: str = "",
     emit_metric: bool = True,
 ) -> None:
     """Async variant: builds the record on-loop, offloads the file write.
@@ -1502,6 +1517,8 @@ async def persist_token_record_async(
             ctx_blocks=ctx_blocks,
             phase=phase,
             app=app,
+            parent_session_key=parent_session_key,
+            advisor_update_id=advisor_update_id,
         )
         # Before the offloaded write: a file-write failure must not cost the
         # latency sample, which needs nothing from disk.

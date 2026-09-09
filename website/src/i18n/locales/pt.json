@@ -8217,6 +8217,15 @@
       "turn_on": "Ligar esta prévia",
       "screenshot_badge": "Captura de tela",
       "is_on": "Esta prévia está ligada — desligar só a esconde, nada do que você criou se perde"
+    },
+    "advisorOverrideControl": {
+      "advisor": "Consultor",
+      "advisor_mode": "Modo do consultor",
+      "helper": "Revisa esta sessão com um segundo modelo e sinaliza problemas enquanto você trabalha.",
+      "inherit": "Herdar",
+      "on": "Ativado",
+      "off": "Desativado",
+      "update_failed": "Não foi possível atualizar o consultor."
     }
   },
   "hooks": {
@@ -9293,7 +9302,8 @@
         "needs_earlier_history_count_many": "Selecione para carregar o histórico anterior: restam {{count}} mensagens anteriores",
         "needs_earlier_history_count_other": "Selecione para carregar o histórico anterior: restam {{count}} mensagens anteriores",
         "share_message": "Compartilhar como imagem",
-        "copy_failed": "Falha ao copiar"
+        "copy_failed": "Falha ao copiar",
+        "advisorDiscarded": "Descartado"
       },
       "chatFooter": {
         "compacting": "Compactando…",
@@ -9812,6 +9822,14 @@
         "copy_text_failed": "Falha ao copiar",
         "copy_text_unavailable": "A área de transferência está bloqueada aqui. O texto da sua publicação está selecionado — pressione Ctrl+C / ⌘C. O texto do cartão que você editou, copie do próprio cartão.",
         "export_failed": "Não foi possível gerar o cartão de compartilhamento"
+      },
+      "advisorMessage": {
+        "advisor": "Consultor",
+        "nit": "Sugestão",
+        "concern": "Atenção",
+        "blocker": "Bloqueador",
+        "saved_for_next_turn": "Salvo para o próximo turno",
+        "evidence": "Evidências"
       }
     },
     "chatPage": {
@@ -12824,6 +12842,18 @@
         "other": "Outro",
         "pin_last_prompt": "Fixar o turno mais recente",
         "pin_last_prompt_desc": "Mantenha o turno mais recente visível como um banner fixo quando ele rolar para cima da área visível.",
+        "advisor": "Consultor",
+        "enable_advisor": "Ativar o consultor",
+        "enable_advisor_description": "Um segundo modelo opcional revisa as sessões nos pontos de controle e sinaliza problemas. Fica desativado por padrão; você pode substituí-lo por sessão no popover do modelo.",
+        "reviewer_model": "Modelo revisor",
+        "empty_uses_the_default_model": "Vazio usa o modelo padrão",
+        "non_blocker_budget": "Limite de notas não bloqueantes",
+        "non_blocker_budget_description": "Máximo de notas leves e preocupações por atualização da revisão.",
+        "interruption_cooldown_seconds": "Intervalo entre interrupções (segundos)",
+        "interruption_cooldown_description": "Intervalo mínimo entre as interrupções do consultor.",
+        "include_reasoning": "Incluir raciocínio",
+        "include_reasoning_description": "Permita também que o modelo revisor veja o raciocínio redigido do modelo principal.",
+        "failed_to_save_advisor_setting": "Não foi possível salvar a configuração do consultor",
         "power": "Energia",
         "prevent_sleep_while_running": "Impedir a suspensão durante a execução",
         "product_manager": "Gerente de produto",

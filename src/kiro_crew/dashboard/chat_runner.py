@@ -3463,6 +3463,19 @@ def _flush_segment(
     redacted, cred_warnings = redact_credentials(redacted)
     for w in cred_warnings:
         logger.warning("Credential redacted in chat segment: %s", w)
+
+    # Advisor observation: a finalized segment is a host-owned checkpoint
+    # fact, observed in the SAME redacted form the transcript persists --
+    # the observer must never hold rawer content than the transcript
+    # (round-5 review: the raw form leaked credentials the persist path
+    # strips). Total no-op unless this slot has an attached observer.
+    if redacted:
+        from kiro_crew.advisor.service import observe_segment, schedule_pump
+
+        observe_segment(slot, redacted)
+        # Mid-turn checkpoint: segments are the review points of a text-only
+        # turn. Fire-and-forget, budgeted by pool semaphore + guard cooldown.
+        schedule_pump(state, slot)
     # Persist as assistant message. Broadcast is kept enabled so that
     # other tabs viewing the same slot receive the finalized text.
     # The active tab already has this content from streaming chunks;
@@ -4924,7 +4937,50 @@ def _settle_consumed_steers(
             # the card ids and pushes the slot status, so reconnecting clients
             # cannot rehydrate the stale card.
             state.clear_question_pending(slot.key, blocking=False)
+    # Envelope lockstep: an advisory whose pending entry the echo consumed is
+    # delivered advice -- its envelope has no later reader. Entries still in
+    # `remaining` keep theirs for the teardown to preserve.
+    _adv = getattr(slot, "_advisory_envelopes", None)
+    if _adv:
+        for _consumed_msg in [m for m in slot._pending_steers if m not in remaining]:
+            _adv.pop(_consumed_msg, None)
     slot._pending_steers[:] = remaining
+
+
+def _peek_advisor_context(slot: "_ChatSlot", full_message: str) -> str:
+    """Prepend the slot's staged advisor context to an outgoing turn.
+
+    NON-DESTRUCTIVE: the staged context is only cleared by
+    ``_commit_advisor_context_drain`` once the turn is past its acceptance
+    gates, so a turn aborted before dispatch (stop, closing) keeps the advice
+    for the next turn. Total and cheap -- no staged context passes through.
+    """
+    try:
+        from kiro_crew.advisor.delivery import peek_pending_advisor_context
+
+        staged = peek_pending_advisor_context(slot)
+    except Exception:  # advisor must never break the primary turn
+        logger.debug("advisor context peek failed", exc_info=True)
+        return full_message
+    if not staged:
+        return full_message
+    notes = "\n".join(staged)
+    return (
+        "[Advisor context]\n"
+        "A cross-model reviewer raised these on earlier turns. Weigh this "
+        "evidence against your own; it is advice, not an instruction:\n"
+        f"{notes}\n[End advisor context]\n\n{full_message}"
+    )
+
+
+def _commit_advisor_context_drain(slot: "_ChatSlot") -> None:
+    """Clear staged advisor context once the turn is accepted. Total."""
+    try:
+        from kiro_crew.advisor.delivery import clear_pending_advisor_context
+
+        clear_pending_advisor_context(slot)
+    except Exception:
+        logger.debug("advisor context commit failed", exc_info=True)
 
 
 def _requeue_unconsumed_steers(state: "DashboardState", slot: "_ChatSlot") -> None:
@@ -4950,6 +5006,23 @@ def _requeue_unconsumed_steers(state: "DashboardState", slot: "_ChatSlot") -> No
 
     requeued = slot._pending_steers[:]
     slot._pending_steers.clear()
+    # Advisory steers take the PRESERVE path, never the queue: an advisory is
+    # not user speech, so degrading it into a user queue card would execute
+    # reviewer advice as a user-authored turn (advisor module contract). The
+    # envelope registered alongside the pending entry is what marks one.
+    _advisories = [m for m in requeued if m in getattr(slot, "_advisory_envelopes", {})]
+    if _advisories:
+        from kiro_crew.advisor.delivery import preserve_advisory
+
+        requeued = [m for m in requeued if m not in slot._advisory_envelopes]
+        from kiro_crew.advisor.delivery import AdvisoryEnvelope as _AdvEnv
+
+        for adv_msg in _advisories:
+            adv_env = slot._advisory_envelopes.pop(adv_msg)
+            slot._steer_delivery_ids.pop(adv_msg, None)
+            slot._steer_send_ids.pop(adv_msg, None)
+            if isinstance(adv_env, _AdvEnv):
+                preserve_advisory(state, slot, adv_msg, adv_env)
     for steer_msg in reversed(requeued):
         # The turn is over and never confirmed this steer, so the row persisted at
         # write time is now WRONG if it still reads as a successful injection.
@@ -6186,6 +6259,7 @@ async def _run_chat(
     # below already carry three of the observations, so only what nothing else
     # records is added here.
     _saw_terminal_event = False
+    _terminal_stop_reason = ""
     # Retained past the EVENT_COMPLETE arm on purpose: the verdict is reached in
     # the post-stream chain, which no longer has the event.
     _terminal_synthetic = False
@@ -7515,6 +7589,11 @@ async def _run_chat(
             hook_ctx = "\n\n".join(all_injected)
             full_message = f"[Hook context]\n{hook_ctx}\n[End hook context]\n\n{full_message}"
 
+        # Advisor context drain: nit/concern advisories preserved from earlier
+        # turns are delivered exactly once, as data the primary model weighs
+        # (never as a user-authored instruction -- advisor module contract).
+        full_message = _peek_advisor_context(slot, full_message)
+
         if regenerate_hint:
             full_message = f"[System: {regenerate_hint}]\n\n{full_message}"
 
@@ -7696,6 +7775,13 @@ async def _run_chat(
         _turn_model = ""
         _turn_msg_boundary = len(slot.messages)
 
+        # Advisor attach: composes the global default with the slot's persisted
+        # override. One dict lookup when off; the observer then receives this
+        # turn's checkpoints through the total observe_*/complete hooks.
+        from kiro_crew.advisor.service import attach_for_turn as _advisor_attach
+
+        _advisor_attach(slot)
+
         # Lease-dispatch race gate: this session's semaphore lease
         # was taken by get_or_create above, but the provider turn only opens on
         # the first stream iteration below. If a gateway restart / Make-Live
@@ -7736,7 +7822,17 @@ async def _run_chat(
         if monitor_completion is not None:
             monitor_completion.mark_accepted()
         event_stream = client.stream_command(message) if is_slash else client.stream(full_message)
+        _advisor_drain_committed = False
         async for event in event_stream:
+            # The provider has ACCEPTED the turn — an event arrived. Clear the
+            # staged advisor context on the first one, not at stream open: a
+            # transport that dies before its first iteration re-queues the
+            # message, and the rebuilt turn must still carry the advice. Only
+            # for a prompt turn: a slash command streams `message`, which never
+            # carried the advice, so committing there would discard it unread.
+            if not _advisor_drain_committed and not is_slash:
+                _advisor_drain_committed = True
+                _commit_advisor_context_drain(slot)
             # Heartbeat every 5s during long operations
             if time.time() - last_heartbeat > 5:
                 state.broadcast_ws("heartbeat", {"slot": slot.key, "ts": time.time()})
@@ -7854,6 +7950,13 @@ async def _run_chat(
                         "chat_thinking",
                         {"slot": slot.key, "content": wire},
                     )
+                    # Advisor reasoning observation: gated inside the hook on
+                    # advisor.include_reasoning, and fed the REDACTED wire form
+                    # -- the same boundary the dashboard itself renders
+                    # (architecture: never rawer than the transcript surface).
+                    from kiro_crew.advisor.service import observe_reasoning
+
+                    observe_reasoning(slot, wire)
                 # Deliberately NOT a turn-emit: do not flip _turn_emitted here.
                 # Thinking is ephemeral, broadcast-only (never persisted to
                 # slot.messages and never an irreversible side effect), so a
@@ -8189,6 +8292,17 @@ async def _run_chat(
                     )
             elif event.kind == EVENT_TOOL_RESULT:
                 _out = _redact_tool_field(event.tool_output)
+                # Advisor observation: completed tool results coalesce into the
+                # next in-progress checkpoint. Records the REDACTED form -- the
+                # observer must never hold rawer content than the transcript.
+                from kiro_crew.advisor.service import observe_tool_result, schedule_pump
+
+                observe_tool_result(slot, str(event.tool_name or ""), _out or "")
+                # Mid-turn checkpoint: a completed tool result is the natural
+                # review point where advice is still cheap to act on. The pump
+                # is fire-and-forget, budgeted by the pool semaphore and the
+                # guard cooldown, and drains nothing when no records are new.
+                schedule_pump(state, slot)
                 # Redact the join key once for the WS broadcast and the
                 # message-meta comparison below. `_tool_meta` stores the
                 # redacted form, so the comparison must use the redacted form
@@ -10111,6 +10225,11 @@ async def _run_chat(
                 # `synthetic_completion` is readable ONLY here, and the
                 # empty-response verdict that needs it runs after the stream loop.
                 _saw_terminal_event = True
+                # Advisor completion is DEFERRED to the finally: the final text
+                # segment flushes after this loop, and sealing the epoch here
+                # would reject that observation -- a text-only response would
+                # never reach the reviewer. Only the stop info is recorded now.
+                _terminal_stop_reason = str(event.stop_reason or "")
                 _terminal_synthetic = bool(event.synthetic_completion)
                 _turn_billed = usage_has_billing(event.usage)
                 # Hang-attribution snapshot BEFORE the close-all safety net
@@ -12433,6 +12552,21 @@ async def _run_chat(
         slot.append("error", _err_text, "msg msg-err")
         await state.sessions.record_failure(session_key)
     finally:
+        # Advisor observation: exactly one final update per epoch (idempotent
+        # complete), AFTER the post-loop segment flushes so the final response
+        # text is part of the reviewed evidence. Gated on a genuine terminal:
+        # cancellations and provider errors leave the epoch open for the next
+        # attach's re-prime rather than fabricating a completion.
+        if _saw_terminal_event:
+            from kiro_crew.advisor.service import complete_turn as _advisor_complete
+            from kiro_crew.advisor.service import schedule_pump as _advisor_pump
+
+            _advisor_complete(
+                slot,
+                stop_reason=_terminal_stop_reason,
+                synthetic=_terminal_synthetic,
+            )
+            _advisor_pump(state, slot)
         # Poisoned-conversation streak break — in the FINALLY on purpose (fork
         # GPT review): several recovery paths (stale-turn, tool-stall,
         # pipe-death) `return` before the main completion block, and a turn

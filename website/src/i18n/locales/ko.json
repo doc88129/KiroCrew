@@ -7993,6 +7993,15 @@
       "turn_on": "이 미리보기 켜기",
       "screenshot_badge": "스크린샷",
       "is_on": "이 미리보기가 켜져 있습니다. 끄면 숨겨질 뿐이며 만든 것은 사라지지 않습니다"
+    },
+    "advisorOverrideControl": {
+      "advisor": "어드바이저",
+      "advisor_mode": "어드바이저 모드",
+      "helper": "두 번째 모델로 이 세션을 검토하고 작업 중 문제를 표시합니다.",
+      "inherit": "상속",
+      "on": "켜기",
+      "off": "끄기",
+      "update_failed": "어드바이저를 업데이트하지 못했습니다."
     }
   },
   "hooks": {
@@ -9035,7 +9044,8 @@
         "needs_active_chat": "이 채팅이 완전히 열리면 사용할 수 있습니다",
         "needs_earlier_history_count_other": "선택하면 이전 기록을 불러옵니다 — 이전 메시지 {{count}}개가 남아 있습니다",
         "share_message": "이미지로 공유",
-        "copy_failed": "복사 실패"
+        "copy_failed": "복사 실패",
+        "advisorDiscarded": "폐기됨"
       },
       "chatFooter": {
         "compacting": "압축 중…",
@@ -9534,6 +9544,14 @@
         "copy_text_failed": "복사하지 못했습니다",
         "copy_text_unavailable": "이 환경에서는 클립보드가 차단되어 있습니다. 게시글 텍스트가 선택되어 있으니 Ctrl+C / ⌘C를 누르세요. 편집한 카드 텍스트는 카드에서 직접 복사하세요.",
         "export_failed": "공유 카드를 만들 수 없습니다"
+      },
+      "advisorMessage": {
+        "advisor": "어드바이저",
+        "nit": "사소한 제안",
+        "concern": "우려",
+        "blocker": "차단 항목",
+        "saved_for_next_turn": "다음 턴을 위해 저장됨",
+        "evidence": "근거"
       }
     },
     "chatPage": {
@@ -12476,6 +12494,18 @@
         "other": "기타",
         "pin_last_prompt": "최신 턴 고정",
         "pin_last_prompt_desc": "가장 최근 턴이 화면 위로 스크롤되면 고정 배너로 계속 표시합니다.",
+        "advisor": "어드바이저",
+        "enable_advisor": "어드바이저 사용",
+        "enable_advisor_description": "선택한 경우 두 번째 모델이 체크포인트에서 세션을 검토하고 문제를 알려 줍니다. 기본값은 꺼짐이며 모델 팝오버에서 세션별로 재정의할 수 있습니다.",
+        "reviewer_model": "검토 모델",
+        "empty_uses_the_default_model": "비워 두면 기본 모델 사용",
+        "non_blocker_budget": "비차단 메모 한도",
+        "non_blocker_budget_description": "검토 업데이트당 사소한 지적과 우려 메모의 최대 개수입니다.",
+        "interruption_cooldown_seconds": "중단 간격(초)",
+        "interruption_cooldown_description": "어드바이저 중단 사이의 최소 간격입니다.",
+        "include_reasoning": "추론 포함",
+        "include_reasoning_description": "검토 모델이 기본 모델의 수정된 추론도 볼 수 있게 합니다.",
+        "failed_to_save_advisor_setting": "어드바이저 설정을 저장하지 못했습니다",
         "power": "전원",
         "prevent_sleep_while_running": "실행 중 절전 모드 방지",
         "product_manager": "프로덕트 매니저",

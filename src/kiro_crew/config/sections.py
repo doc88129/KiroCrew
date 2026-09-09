@@ -1506,6 +1506,47 @@ class TaskRunnerConfig:
 
 
 @dataclass
+class AdvisorConfig:
+    """The opt-in cross-model session reviewer (docs/system-specs/modules/advisor.md)."""
+
+    enabled: bool = field(
+        default=False,
+        metadata=_meta(
+            "Advisor Enabled",
+            "Global default for the session advisor. Off by default; per-session override wins.",
+        ),
+    )
+    model: str = field(
+        default="",
+        metadata=_meta(
+            "Advisor Model",
+            "Reviewer model id. Empty selects the runtime default model.",
+        ),
+    )
+    non_blocker_budget: int = field(
+        default=4,
+        metadata=_meta(
+            "Advisor Note Budget",
+            "Max nits+concerns admitted per observation update. Blockers are exempt.",
+        ),
+    )
+    cooldown_secs: float = field(
+        default=120,
+        metadata=_meta(
+            "Advisor Cooldown",
+            "Seconds after a blocker interruption during which non-blocker notes are held.",
+        ),
+    )
+    include_reasoning: bool = field(
+        default=False,
+        metadata=_meta(
+            "Advisor Sees Reasoning",
+            "Include bounded redacted reasoning in observation records.",
+        ),
+    )
+
+
+@dataclass
 class OrchestratorConfig:
     stage_timeout_seconds: int = field(
         default=1800,

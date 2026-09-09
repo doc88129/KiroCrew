@@ -8217,6 +8217,15 @@
       "turn_on": "Activar esta vista previa",
       "screenshot_badge": "Captura",
       "is_on": "Esta vista previa está activada: desactivarla solo la oculta, no se pierde nada de lo que hayas creado"
+    },
+    "advisorOverrideControl": {
+      "advisor": "Asesor",
+      "advisor_mode": "Modo del asesor",
+      "helper": "Revisa esta sesión con un segundo modelo y señala problemas mientras trabajas.",
+      "inherit": "Heredar",
+      "on": "Activado",
+      "off": "Desactivado",
+      "update_failed": "No se pudo actualizar el asesor."
     }
   },
   "hooks": {
@@ -9293,7 +9302,8 @@
         "needs_earlier_history_count_many": "Selecciona para cargar el historial anterior: quedan {{count}} mensajes anteriores",
         "needs_earlier_history_count_other": "Selecciona para cargar el historial anterior: quedan {{count}} mensajes anteriores",
         "share_message": "Compartir como imagen",
-        "copy_failed": "Error al copiar"
+        "copy_failed": "Error al copiar",
+        "advisorDiscarded": "Descartado"
       },
       "chatFooter": {
         "compacting": "Compactando…",
@@ -9812,6 +9822,14 @@
         "copy_text_failed": "No se pudo copiar",
         "copy_text_unavailable": "El portapapeles está bloqueado aquí. El texto de tu publicación está seleccionado: pulsa Ctrl+C / ⌘C. El texto de la tarjeta que hayas editado, cópialo desde la propia tarjeta.",
         "export_failed": "No se pudo generar la tarjeta para compartir"
+      },
+      "advisorMessage": {
+        "advisor": "Asesor",
+        "nit": "Sugerencia",
+        "concern": "Advertencia",
+        "blocker": "Bloqueador",
+        "saved_for_next_turn": "Guardado para el próximo turno",
+        "evidence": "Evidencia"
       }
     },
     "chatPage": {
@@ -12825,6 +12843,18 @@
         "other": "Otro",
         "pin_last_prompt": "Fijar el último turno",
         "pin_last_prompt_desc": "Mantén visible el turno más reciente como un banner fijo cuando se desplace por encima del área visible.",
+        "advisor": "Asesor",
+        "enable_advisor": "Activar el asesor",
+        "enable_advisor_description": "Un segundo modelo opcional revisa las sesiones en puntos de control y señala problemas. Está desactivado de forma predeterminada; puedes cambiarlo por sesión en el menú emergente del modelo.",
+        "reviewer_model": "Modelo revisor",
+        "empty_uses_the_default_model": "Vacío usa el modelo predeterminado",
+        "non_blocker_budget": "Límite de notas no bloqueantes",
+        "non_blocker_budget_description": "Máximo de notas leves y preocupaciones por actualización de revisión.",
+        "interruption_cooldown_seconds": "Intervalo entre interrupciones (segundos)",
+        "interruption_cooldown_description": "Tiempo mínimo entre interrupciones del asesor.",
+        "include_reasoning": "Incluir razonamiento",
+        "include_reasoning_description": "Permite que el modelo revisor vea también el razonamiento redactado del modelo principal.",
+        "failed_to_save_advisor_setting": "No se pudo guardar la configuración del asesor",
         "power": "Energía",
         "prevent_sleep_while_running": "Evitar la suspensión durante la ejecución",
         "product_manager": "Gerente de producto",

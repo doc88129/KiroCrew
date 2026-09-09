@@ -945,3 +945,25 @@ class TestUpdateNudgeKeys:
         async with TestClient(TestServer(_make_app())) as c:
             rec = {**self._REC, "skipped": "yes"}
             assert (await _patch(c, "dashboard.update_nudge", rec)).status == 400
+
+
+# ── Advisor model grammar (advisor.model) ─────────────────────────────────
+
+
+class TestAdvisorModelGrammar:
+    """The PATCH gate must enforce MODEL_ID_RE's grammar: an id that passes
+    the gate but is rejected at runtime construction crashes the pump."""
+
+    @pytest.mark.asyncio
+    async def test_bracket_bearing_id_rejected(self, tmp_config) -> None:
+        async with TestClient(TestServer(_make_app())) as c:
+            resp = await _patch(c, "advisor.model", "foo[bar]")
+            assert resp.status == 400
+
+    @pytest.mark.asyncio
+    async def test_valid_id_and_empty_inherit_accepted(self, tmp_config) -> None:
+        async with TestClient(TestServer(_make_app())) as c:
+            resp = await _patch(c, "advisor.model", "gpt-5.6-sol")
+            assert resp.status == 200
+            resp = await _patch(c, "advisor.model", "")
+            assert resp.status == 200

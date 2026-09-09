@@ -7993,6 +7993,15 @@
       "turn_on": "开启此预览",
       "screenshot_badge": "截图",
       "is_on": "此预览已开启。关闭只会把它隐藏起来，你创建的内容不会丢失"
+    },
+    "advisorOverrideControl": {
+      "advisor": "顾问",
+      "advisor_mode": "顾问模式",
+      "helper": "使用第二个模型审查此会话，并在你工作时标记问题。",
+      "inherit": "继承",
+      "on": "开启",
+      "off": "关闭",
+      "update_failed": "无法更新顾问设置。"
     }
   },
   "hooks": {
@@ -9035,7 +9044,8 @@
         "needs_active_chat": "此对话完成打开后可用",
         "needs_earlier_history_count_other": "选择以加载更早的历史记录 — 还剩 {{count}} 条更早的消息",
         "share_message": "分享为图片",
-        "copy_failed": "复制失败"
+        "copy_failed": "复制失败",
+        "advisorDiscarded": "Discarded"
       },
       "chatFooter": {
         "compacting": "压缩中…",
@@ -9534,6 +9544,14 @@
         "copy_text_failed": "复制失败",
         "copy_text_unavailable": "当前环境禁止写入剪贴板。文案已选中——按 Ctrl+C / ⌘C 复制。你改过的卡片文字请直接从卡片上复制。",
         "export_failed": "无法生成分享卡片"
+      },
+      "advisorMessage": {
+        "advisor": "顾问",
+        "nit": "小建议",
+        "concern": "需注意",
+        "blocker": "阻止项",
+        "saved_for_next_turn": "已保存到下一轮",
+        "evidence": "证据"
       }
     },
     "chatPage": {
@@ -12476,6 +12494,18 @@
         "other": "其他",
         "pin_last_prompt": "置顶最新轮次",
         "pin_last_prompt_desc": "当最新轮次滚动出视野上方时，将其固定为顶部横幅保持可见。",
+        "advisor": "顾问",
+        "enable_advisor": "启用顾问",
+        "enable_advisor_description": "启用后，第二个模型会在检查点审阅会话并标记问题。默认关闭；可在模型弹出菜单中按会话覆盖此设置。",
+        "reviewer_model": "审阅模型",
+        "empty_uses_the_default_model": "留空则使用默认模型",
+        "non_blocker_budget": "非阻塞备注上限",
+        "non_blocker_budget_description": "每次审阅更新最多显示的细节和疑虑备注数。",
+        "interruption_cooldown_seconds": "中断冷却时间（秒）",
+        "interruption_cooldown_description": "顾问两次中断之间的最短间隔。",
+        "include_reasoning": "包含推理",
+        "include_reasoning_description": "同时允许审阅模型查看主模型经过隐去处理的推理。",
+        "failed_to_save_advisor_setting": "无法保存顾问设置",
         "power": "电源",
         "prevent_sleep_while_running": "运行时阻止睡眠",
         "product_manager": "产品经理",

@@ -115,6 +115,13 @@ type KirocrewConfigShape = {
     fallback_model?: string
   }
   dashboard?: { user_role?: string; user_role_other?: string; user_technical_level?: string; prevent_sleep?: boolean }
+  advisor?: {
+    enabled?: boolean
+    model?: string
+    non_blocker_budget?: number
+    cooldown_secs?: number
+    include_reasoning?: boolean
+  }
 }
 
 export function ChatPanel() {
@@ -235,10 +242,10 @@ export function ChatPanel() {
    * the newer pick owns the display, and a stale "failed to save" beside a
    * value that did persist is exactly the co-render this prevents.
    */
-  const optimisticConfigOpts = (path: string, errMsg: (err: unknown) => string) =>
-    overlay.mutationOpts<string>({
+  const optimisticConfigOpts = <T,>(path: string, errMsg: (err: unknown) => string) =>
+    overlay.mutationOpts<T>({
       queryKey: ['kirocrewConfig'],
-      mutationFn: (v: string) => api.patchConfig(path, v),
+      mutationFn: (v: T) => api.patchConfig(path, v),
       path: () => path,
       displayValue: v => v,
       applyToCache: (cached, v) => setConfigPathValue(cached as KirocrewConfigShape, path, v),
@@ -275,6 +282,68 @@ export function ChatPanel() {
     onSuccess: () => qc.invalidateQueries({ queryKey: ['kirocrewConfig'] }),
     onError: () => setSaveError(i18nT('pages.settings.chatPanel.failed_to_save_session_summaries')),
   })
+
+  // ── Advisor (server-side; live-applied by the config PATCH) ──
+  const advisorEnabled = mcCfg?.advisor?.enabled ?? false
+  const advisorModel = mcCfg?.advisor?.model ?? ''
+  const advisorNonBlockerBudget = mcCfg?.advisor?.non_blocker_budget ?? 4
+  const advisorCooldownSecs = mcCfg?.advisor?.cooldown_secs ?? 120
+  const advisorIncludeReasoning = mcCfg?.advisor?.include_reasoning ?? false
+  const shownAdvisorEnabled = overlay.shown('advisor.enabled', advisorEnabled)
+  const shownAdvisorModel = overlay.shown('advisor.model', advisorModel)
+  const shownAdvisorNonBlockerBudget = overlay.shown(
+    'advisor.non_blocker_budget',
+    advisorNonBlockerBudget,
+  )
+  const shownAdvisorCooldownSecs = overlay.shown('advisor.cooldown_secs', advisorCooldownSecs)
+  const shownAdvisorIncludeReasoning = overlay.shown(
+    'advisor.include_reasoning',
+    advisorIncludeReasoning,
+  )
+  const advisorSaveError = () => i18nT('pages.settings.chatPanel.failed_to_save_advisor_setting')
+  const advisorEnabledMut = useMutation(
+    optimisticConfigOpts<boolean>('advisor.enabled', advisorSaveError),
+  )
+  const advisorModelMut = useMutation(
+    optimisticConfigOpts<string>('advisor.model', advisorSaveError),
+  )
+  const advisorNonBlockerBudgetMut = useMutation(
+    optimisticConfigOpts<number>('advisor.non_blocker_budget', advisorSaveError),
+  )
+  const advisorCooldownMut = useMutation(
+    optimisticConfigOpts<number>('advisor.cooldown_secs', advisorSaveError),
+  )
+  const advisorIncludeReasoningMut = useMutation(
+    optimisticConfigOpts<boolean>('advisor.include_reasoning', advisorSaveError),
+  )
+
+  // Text and numeric fields commit on blur so typing does not PATCH each
+  // intermediate value. Null means no local edit; the optimistic overlay owns
+  // the value between blur and the authoritative refetch.
+  const [advisorModelDraft, setAdvisorModelDraft] = useState<string | null>(null)
+  const [advisorNonBlockerDraft, setAdvisorNonBlockerDraft] = useState<string | null>(null)
+  const [advisorCooldownDraft, setAdvisorCooldownDraft] = useState<string | null>(null)
+  const commitAdvisorModel = () => {
+    const next = advisorModelDraft
+    setAdvisorModelDraft(null)
+    if (next !== null && next !== shownAdvisorModel) advisorModelMut.mutate(next)
+  }
+  const commitAdvisorInteger = () => {
+    const raw = advisorNonBlockerDraft
+    setAdvisorNonBlockerDraft(null)
+    if (raw === null || raw.trim() === '') return
+    const next = Number(raw)
+    if (!Number.isInteger(next) || next < 0 || next > 50 || next === shownAdvisorNonBlockerBudget) return
+    advisorNonBlockerBudgetMut.mutate(next)
+  }
+  const commitAdvisorCooldown = () => {
+    const raw = advisorCooldownDraft
+    setAdvisorCooldownDraft(null)
+    if (raw === null || raw.trim() === '') return
+    const next = Number(raw)
+    if (!Number.isFinite(next) || next < 0 || next > 3600 || next === shownAdvisorCooldownSecs) return
+    advisorCooldownMut.mutate(next)
+  }
 
   // "Other" reveals a free-text role. Typed locally and committed on blur /
   // Enter so a PATCH does not fire per keystroke; seeded from the server once
@@ -504,16 +573,18 @@ export function ChatPanel() {
 
   return (
     <>
-      {/* No hand-off: `localRoleOther`, `localBudget` and `localKeepChars` are
-          this panel's live drafts. A hand-off click blurs the field, which STARTS
-          a save — and if that save fails after the navigation has unmounted the
-          panel, the typed value is gone with nothing left on screen to say so. */}
+      {/* No hand-off: the Advisor text/number drafts plus `localRoleOther`,
+          `localBudget` and `localKeepChars` are this panel's live drafts. A
+          hand-off click blurs the field, which STARTS a save — and if that save
+          fails after the navigation has unmounted the panel, the typed value is
+          gone with nothing left on screen to say so. */}
       <ErrorNotice message={saveError} onDismiss={() => setSaveError('')} className="mb-4 animate-rise" />
       {dashQ.isError && (
         <div className="mb-4 flex flex-wrap items-center gap-3">
-          {/* No hand-off: the rest of the panel — and its `localRoleOther` /
-              `localBudget` / `localKeepChars` drafts — stays mounted under this
-              banner, so the navigation would discard them. Retry is the path. */}
+          {/* No hand-off: the rest of the panel — including the Advisor drafts
+              and its `localRoleOther` / `localBudget` / `localKeepChars` drafts —
+              stays mounted under this banner, so the navigation would discard
+              them. Retry is the path. */}
           <ErrorNotice
             className="flex-1 min-w-[16rem]"
             message={i18nT('pages.settings.chatPanel.failed_to_load_dashboard_config')}
@@ -623,6 +694,63 @@ export function ChatPanel() {
             onChange={v => fallbackMut.mutate(v)}
             disabled={!mcQ.isSuccess}
             configKey="agent.fallback_model"
+          />
+        </SettingsCard>
+      </SettingsSection>
+
+      <SettingsSection title={i18nT('pages.settings.chatPanel.advisor')}>
+        <SettingsCard index={3}>
+          <SettingsToggle
+            label={i18nT('pages.settings.chatPanel.enable_advisor')}
+            description={i18nT('pages.settings.chatPanel.enable_advisor_description')}
+            checked={shownAdvisorEnabled}
+            onChange={v => advisorEnabledMut.mutate(v)}
+            disabled={!mcQ.isSuccess}
+            configKey="advisor.enabled"
+          />
+          <SettingsInput
+            label={i18nT('pages.settings.chatPanel.reviewer_model')}
+            description={i18nT('pages.settings.chatPanel.empty_uses_the_default_model')}
+            placeholder={i18nT('pages.settings.chatPanel.empty_uses_the_default_model')}
+            value={advisorModelDraft ?? shownAdvisorModel}
+            onChange={setAdvisorModelDraft}
+            onBlur={commitAdvisorModel}
+            disabled={!mcQ.isSuccess}
+            configKey="advisor.model"
+          />
+          <SettingsInput
+            label={i18nT('pages.settings.chatPanel.non_blocker_budget')}
+            description={i18nT('pages.settings.chatPanel.non_blocker_budget_description')}
+            type="number"
+            value={advisorNonBlockerDraft ?? String(shownAdvisorNonBlockerBudget)}
+            min={0}
+            max={50}
+            step={1}
+            onChange={setAdvisorNonBlockerDraft}
+            onBlur={commitAdvisorInteger}
+            disabled={!mcQ.isSuccess}
+            configKey="advisor.non_blocker_budget"
+          />
+          <SettingsInput
+            label={i18nT('pages.settings.chatPanel.interruption_cooldown_seconds')}
+            description={i18nT('pages.settings.chatPanel.interruption_cooldown_description')}
+            type="number"
+            value={advisorCooldownDraft ?? String(shownAdvisorCooldownSecs)}
+            min={0}
+            max={3600}
+            step={0.5}
+            onChange={setAdvisorCooldownDraft}
+            onBlur={commitAdvisorCooldown}
+            disabled={!mcQ.isSuccess}
+            configKey="advisor.cooldown_secs"
+          />
+          <SettingsToggle
+            label={i18nT('pages.settings.chatPanel.include_reasoning')}
+            description={i18nT('pages.settings.chatPanel.include_reasoning_description')}
+            checked={shownAdvisorIncludeReasoning}
+            onChange={v => advisorIncludeReasoningMut.mutate(v)}
+            disabled={!mcQ.isSuccess}
+            configKey="advisor.include_reasoning"
           />
         </SettingsCard>
       </SettingsSection>
@@ -757,8 +885,9 @@ export function ChatPanel() {
           <SettingsToggle label={i18nT('pages.settings.chatPanel.feature_tips')} description={tipsConfigOff ? i18nT('pages.settings.chatPanel.disabled_by_instance_config_tips_enabled_false') : i18nT('pages.settings.chatPanel.show_occasional_feature_discovery_tips_above_the')} checked={!!tipsQ.data && tipsQ.data.enabled_config && !shownOptedOut} onChange={v => tipsMut.mutate(v)} disabled={tipsConfigOff || tipsQ.isLoading || tipsQ.isError} />
           {/* A failed status read used to only grey the toggle out, which is
               indistinguishable from the instance-config gate above. Say why.
-              No hand-off: this panel's `localRoleOther` / `localBudget` /
-              `localKeepChars` drafts would be unmounted by the navigation. */}
+              No hand-off: this panel's Advisor drafts plus `localRoleOther` /
+              `localBudget` / `localKeepChars` would be unmounted by the
+              navigation. */}
           <ErrorNotice
             variant="inline"
             message={tipsQ.isError ? i18nT('pages.settings.chatPanel.failed_to_load_tips_preference') : null}

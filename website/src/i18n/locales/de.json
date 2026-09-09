@@ -8105,6 +8105,15 @@
       "turn_on": "Diese Vorschau einschalten",
       "screenshot_badge": "Screenshot",
       "is_on": "Diese Vorschau ist an – Ausschalten blendet sie nur aus, nichts Erstelltes geht verloren"
+    },
+    "advisorOverrideControl": {
+      "advisor": "Berater",
+      "advisor_mode": "Beratermodus",
+      "helper": "Prüft diese Sitzung mit einem zweiten Modell und weist während der Arbeit auf Probleme hin.",
+      "inherit": "Übernehmen",
+      "on": "Ein",
+      "off": "Aus",
+      "update_failed": "Der Berater konnte nicht aktualisiert werden."
     }
   },
   "hooks": {
@@ -9164,7 +9173,8 @@
         "needs_earlier_history_count_one": "Auswählen, um früheren Verlauf zu laden – noch {{count}} frühere Nachricht",
         "needs_earlier_history_count_other": "Auswählen, um früheren Verlauf zu laden – noch {{count}} frühere Nachrichten",
         "share_message": "Als Bild teilen",
-        "copy_failed": "Kopieren fehlgeschlagen"
+        "copy_failed": "Kopieren fehlgeschlagen",
+        "advisorDiscarded": "Verworfen"
       },
       "chatFooter": {
         "compacting": "Wird verdichtet…",
@@ -9673,6 +9683,14 @@
         "copy_text_failed": "Kopieren fehlgeschlagen",
         "copy_text_unavailable": "Die Zwischenablage ist hier blockiert. Dein Beitragstext ist markiert — drücke Strg+C / ⌘C. Bearbeiteten Kartentext kopierst du direkt aus der Karte.",
         "export_failed": "Die Share-Karte konnte nicht erzeugt werden"
+      },
+      "advisorMessage": {
+        "advisor": "Berater",
+        "nit": "Hinweis",
+        "concern": "Bedenken",
+        "blocker": "Blocker",
+        "saved_for_next_turn": "Für den nächsten Durchgang gespeichert",
+        "evidence": "Belege"
       }
     },
     "chatPage": {
@@ -12650,6 +12668,18 @@
         "other": "Sonstiges",
         "pin_last_prompt": "Neuesten Zug anheften",
         "pin_last_prompt_desc": "Halte den neuesten Zug als fixiertes Banner sichtbar, sobald er über den sichtbaren Bereich hinausscrollt.",
+        "advisor": "Berater",
+        "enable_advisor": "Berater aktivieren",
+        "enable_advisor_description": "Ein optionales zweites Modell prüft Sitzungen an Kontrollpunkten und weist auf Probleme hin. Standardmäßig deaktiviert; im Modell-Popover kann es pro Sitzung überschrieben werden.",
+        "reviewer_model": "Prüfmodell",
+        "empty_uses_the_default_model": "Leer verwendet das Standardmodell",
+        "non_blocker_budget": "Budget für nicht blockierende Hinweise",
+        "non_blocker_budget_description": "Maximale Anzahl kleiner Hinweise und Bedenken pro Prüfaktualisierung.",
+        "interruption_cooldown_seconds": "Abklingzeit für Unterbrechungen (Sekunden)",
+        "interruption_cooldown_description": "Mindestabstand zwischen Unterbrechungen durch den Berater.",
+        "include_reasoning": "Reasoning einbeziehen",
+        "include_reasoning_description": "Das Prüfmodell darf auch das redigierte Reasoning des primären Modells sehen.",
+        "failed_to_save_advisor_setting": "Berater-Einstellung konnte nicht gespeichert werden",
         "power": "Energie",
         "prevent_sleep_while_running": "Ruhezustand während der Ausführung verhindern",
         "product_manager": "Produktmanager",

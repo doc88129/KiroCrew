@@ -2759,6 +2759,38 @@ def _register_instances_hooks(app: web.Application, state: DashboardState, port:
     app.on_cleanup.append(_instances_shutdown)
 
 
+def _register_advisor_hooks(app: web.Application) -> None:
+    """Advisor lifecycle: configure off the bind path, dispose at cleanup."""
+
+    async def _advisor_startup(_app: web.Application) -> None:
+        # Configure the advisor OFF the bind path: on_startup callbacks run
+        # before the gateway starts listening, so the config read (file IO)
+        # is deferred to a background task the bind never waits on. Until it
+        # lands the service stays disabled-inert -- schedule_pump's enabled
+        # check makes an early turn skip review rather than fail.
+        async def _configure() -> None:
+            from kiro_crew.advisor.service import configure_from_config
+
+            cfg = await asyncio.to_thread(KiroCrewConfig.load)
+            # Pool binding follows enablement inside configure_from_config:
+            # a disabled advisor constructs nothing here.
+            configure_from_config(cfg)
+
+        _app["_advisor_configure_task"] = asyncio.create_task(_configure())
+
+    app.on_startup.append(_advisor_startup)
+
+    async def _advisor_shutdown(_app: web.Application) -> None:
+        # Drop every advisor observer at gateway shutdown/recycle: observers
+        # are in-memory session state and must not appear to survive a restart.
+        # Total and synchronous; never blocks the cleanup chain.
+        from kiro_crew.advisor.service import get_advisor_service
+
+        get_advisor_service().dispose_all()
+
+    app.on_cleanup.append(_advisor_shutdown)
+
+
 def build_host_canonical_redirect(canonical_host: str) -> Any:
     """Build the loopback-host-canonicalization middleware.
 
@@ -4032,6 +4064,7 @@ async def start_dashboard(
     # ``runner.setup()`` freezes the app's signal lists. See
     # ``_register_instances_hooks`` for why ordering matters.
     _register_instances_hooks(app, state, port)
+    _register_advisor_hooks(app)
     _register_browser_view_cleanup(app)
     _register_connections_warm_lifecycle(app, state)
 

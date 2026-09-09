@@ -3195,6 +3195,16 @@ async def _reset_slot_session(
         # because the pop and the bookkeeping are otherwise adjacent.
         await _test_interleave("reset:post_pop")
     if reloaded:
+        # Advisor epoch boundary: notified only AFTER the reset actually
+        # happened (reloaded truthy) — a skip_if_busy decline leaves the
+        # original session and its accumulated observations alive, so firing
+        # the boundary first would erase evidence from a session that never
+        # reset. Every switch/reload reset routes through this helper, so the
+        # advisor joins the lifecycle here rather than at six call sites; total
+        # no-op when the advisor is off.
+        from kiro_crew.advisor.service import BOUNDARY_RESET, get_advisor_service
+
+        get_advisor_service().notify_boundary(session_key, BOUNDARY_RESET)
         # The withhold verdict describes the session that advertised the model
         # list, not the slot, so it goes with the session. Routed through this one
         # funnel for the reason above: the switch handlers that reset a session
@@ -3627,6 +3637,13 @@ async def stop_slot_turn(
             # kill discards the text, so there is no requeued entry left to carry
             # the client's send id onto.
             slot._steer_send_ids.pop(_discarded, None)
+            # Advisory envelopes die with the hard kill too: the user's second
+            # press means discard everything, reviewer advice included. A row
+            # already persisted as steered flips to discarded FIRST (needs the
+            # envelope for the row identity), so the transcript never claims a
+            # killed advisory was delivered.
+            _discard_advisory_steer_rows(state, slot, _discarded)
+            slot._advisory_envelopes.pop(_discarded, None)
         slot._pending_steers.clear()
         state.push_slots_update()
         logger.info("Stop (force): hard-killing session for slot %s", name)
@@ -4703,6 +4720,39 @@ class SlotCloseError(Exception):
         self.status = status
 
 
+def _discard_advisory_steer_rows(state: "DashboardState", slot: "_ChatSlot", message: str) -> None:
+    """Flip a hard-killed advisory's persisted steered row to discarded.
+
+    A second Stop can land AFTER `steer_into_running_turn` persisted the
+    advisor row as steered but BEFORE the turn consumed it; clearing the
+    ledger alone leaves the transcript permanently claiming the advice was
+    delivered. Total and best-effort: no matching row is a no-op.
+    """
+    envelope = slot._advisory_envelopes.get(message)
+    update_id = getattr(envelope, "advisor_update_id", "")
+    if not update_id:
+        return
+    for row in reversed(slot.messages):
+        meta = row.get("meta") or {}
+        if (
+            row.get("role") == "advisor"
+            and meta.get("advisorUpdateId") == update_id
+            and meta.get("advisorState") == "steered"
+        ):
+            meta["advisorState"] = "discarded"
+            # In-place row mutation: persisted only by the dirty flush.
+            slot._dirty = True
+            patch: dict = {"slot": slot.key, "ts": row.get("ts"), "meta": meta}
+            mid = meta.get("mid")
+            if isinstance(mid, str) and mid:
+                patch["mid"] = mid
+            try:
+                state.broadcast_ws("chat_message_update", patch)
+            except Exception:
+                logger.debug("advisor discard patch broadcast failed", exc_info=True)
+            return
+
+
 async def close_slot(
     state: DashboardState,
     slot: "_ChatSlot",
@@ -4871,6 +4921,16 @@ async def close_slot(
             state.push_slots_update()
             raise
     state._slots.pop(name, None)
+    # Terminal advisor boundary, synchronously AFTER the pop -- the close's
+    # point of no return. Every abort path above (nudge retirement, app hook,
+    # pre-pop re-check) restores the open slot, and an observer discarded
+    # before those could commit would erase live evidence from a slot that
+    # never closed. Fired with the slot's EFFECTIVE session key -- a
+    # channel-linked slot's observer is registered under the channel's own
+    # key, and a slot-name spelling would miss it. Total no-op when off.
+    from kiro_crew.advisor.service import BOUNDARY_CLOSE, get_advisor_service
+
+    get_advisor_service().notify_boundary(effective_session_key(slot), BOUNDARY_CLOSE)
     # Release any blocking wait before cancelling the task: a question pending on
     # the blocking POST /api/ask-question path holds an MCP worker on an open
     # HTTP request, and the slot is going away, so nobody will answer its card.
@@ -7074,6 +7134,66 @@ async def api_chat_slots_model(request: web.Request) -> web.Response:
             "failed": failed,
         }
     )
+
+
+async def api_chat_slot_advisor_override(request: web.Request) -> web.Response:
+    """POST /api/chat/slots/{slot}/advisor-override — set the advisor override.
+
+    Body: {"advisor_override": "inherit" | "on" | "off"}. A pure enablement
+    gate for the session advisor: no provider reset and no live session push
+    is needed — the advisor service reads the slot field at its next
+    attach/dispatch decision. Persistence rides the normal slots-update dirty
+    flush, matching the other per-slot controls.
+    """
+    state: DashboardState = request.app["state"]
+    name = request.match_info["slot"]
+    slot = state._slots.get(name)
+    if not slot:
+        return web.json_response({"error": "not found", "code": "slot_not_found"}, status=404)
+    denied = _deny_cross_app_slot_access(request, slot, name, "slot_advisor_override")
+    if denied is not None:
+        return denied
+    body, body_err = await read_bounded_json(request)
+    if body_err is not None:
+        return body_err
+    assert body is not None  # read_bounded_json returns (dict, None) on success
+    override = body.get("advisor_override", "")
+    if not isinstance(override, str) or override not in ("inherit", "on", "off"):
+        return web.json_response(
+            {
+                "error": "advisor_override must be one of: inherit, on, off",
+                "code": "invalid_advisor_override",
+            },
+            status=400,
+        )
+    if slot.is_remote:
+        # A remote-bound slot runs its turns on the peer, so the override must
+        # land there; the peer re-validates against the same closed set.
+        return await _apply_remote_pick(
+            request, state, slot, "advisor_override", {"advisor_override": override}
+        )
+    async with slot._lock:
+        # Reauthorize INSIDE the lock: the body-read await above is a window
+        # in which the slot can be replaced or rebound (cron/workflow swap of
+        # `linked_session_key`), and the pre-await check authorized THAT
+        # binding, not whatever the slot fronts now. A replaced slot object
+        # or a failed re-check refuses rather than activating the advisor on
+        # a conversation the caller does not own.
+        current = state._slots.get(name)
+        if current is not slot:
+            return web.json_response(
+                {"error": "slot changed during request", "code": "slot_not_found"},
+                status=409,
+            )
+        denied = _deny_cross_app_slot_access(request, slot, name, "slot_advisor_override")
+        if denied is not None:
+            return denied
+        slot.advisor_override = override
+        # Persisted only by the dirty flush -- without this a restart restores
+        # the previous override while the UI reports the new one.
+        slot._dirty = True
+    state.push_slots_update()
+    return web.json_response({"ok": True, "advisor_override": override})
 
 
 async def api_chat_slot_reasoning_effort(request: web.Request) -> web.Response:

@@ -48,6 +48,7 @@ agent loads only the one it needs.
 | Spec | Subsystem |
 |---|---|
 | [subagent.md](subagent.md) | Spawning background workers, result delivery, and orphan recovery. |
+| [advisor.md](advisor.md) | The opt-in cross-model session reviewer: observation checkpoints, epochs, and the enablement gate. |
 | [agent-interrupt-controller.md](agent-interrupt-controller.md) | `kiro_crew.irq`: masking, coalescing, epoch resets and an error backstop for script-cron pollers, so a cheap probe interrupts an expensive agent turn instead of the turn polling. Also the app-facing probe SDK. |
 | [babysit-pr-watch.md](babysit-pr-watch.md) | Zero-token PR polling for babysit loops: a script cron that wakes the owning session only on unexpected state. |
 | [task.md](task.md) | Task models and state. |

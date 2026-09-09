@@ -7993,6 +7993,15 @@
       "turn_on": "このプレビューをオンにする",
       "screenshot_badge": "スクリーンショット",
       "is_on": "このプレビューはオンです。オフにしても隠れるだけで、作成したものは失われません"
+    },
+    "advisorOverrideControl": {
+      "advisor": "アドバイザー",
+      "advisor_mode": "アドバイザーモード",
+      "helper": "2つ目のモデルでこのセッションをレビューし、作業中に問題を指摘します。",
+      "inherit": "継承",
+      "on": "オン",
+      "off": "オフ",
+      "update_failed": "アドバイザーを更新できませんでした。"
     }
   },
   "hooks": {
@@ -9035,7 +9044,8 @@
         "needs_active_chat": "このチャットを開き終えると利用できます",
         "needs_earlier_history_count_other": "選択すると以前の履歴を読み込みます（残り{{count}}件）",
         "share_message": "画像として共有",
-        "copy_failed": "コピーに失敗しました"
+        "copy_failed": "コピーに失敗しました",
+        "advisorDiscarded": "破棄済み"
       },
       "chatFooter": {
         "compacting": "コンパクト中…",
@@ -9534,6 +9544,14 @@
         "copy_text_failed": "コピーできませんでした",
         "copy_text_unavailable": "この環境ではクリップボードがブロックされています。投稿テキストは選択済みです — Ctrl+C / ⌘C を押してください。編集したカードのテキストはカードから直接コピーしてください。",
         "export_failed": "共有カードを生成できませんでした"
+      },
+      "advisorMessage": {
+        "advisor": "アドバイザー",
+        "nit": "軽微",
+        "concern": "懸念",
+        "blocker": "ブロッカー",
+        "saved_for_next_turn": "次のターン用に保存",
+        "evidence": "根拠"
       }
     },
     "chatPage": {
@@ -12476,6 +12494,18 @@
         "other": "その他",
         "pin_last_prompt": "最新ターンをピン留め",
         "pin_last_prompt_desc": "最も最近のターンが折り目の上にスクロールしたら、スティッキーバナーとして表示し続けます。",
+        "advisor": "アドバイザー",
+        "enable_advisor": "アドバイザーを有効化",
+        "enable_advisor_description": "オプトインの第2モデルがチェックポイントでセッションをレビューし、問題を指摘します。デフォルトでは無効です。モデルのポップオーバーでセッションごとに上書きできます。",
+        "reviewer_model": "レビューモデル",
+        "empty_uses_the_default_model": "空欄の場合はデフォルトモデルを使用",
+        "non_blocker_budget": "非ブロッカー上限",
+        "non_blocker_budget_description": "レビュー更新ごとの軽微な指摘と懸念の最大件数。",
+        "interruption_cooldown_seconds": "割り込み間隔（秒）",
+        "interruption_cooldown_description": "アドバイザーの割り込み間の最小間隔。",
+        "include_reasoning": "推論を含める",
+        "include_reasoning_description": "レビューモデルが主モデルの編集済み推論も確認できるようにします。",
+        "failed_to_save_advisor_setting": "アドバイザー設定を保存できませんでした",
         "power": "電源",
         "prevent_sleep_while_running": "実行中はスリープを防止",
         "product_manager": "プロダクトマネージャー",

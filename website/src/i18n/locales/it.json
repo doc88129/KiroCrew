@@ -8217,6 +8217,15 @@
       "turn_on": "Attiva questa anteprima",
       "screenshot_badge": "Screenshot",
       "is_on": "Questa anteprima è attiva: disattivarla la nasconde soltanto, nulla di ciò che hai creato va perso"
+    },
+    "advisorOverrideControl": {
+      "advisor": "Consulente",
+      "advisor_mode": "Modalità consulente",
+      "helper": "Esamina questa sessione con un secondo modello e segnala i problemi mentre lavori.",
+      "inherit": "Eredita",
+      "on": "Attivo",
+      "off": "Disattivo",
+      "update_failed": "Impossibile aggiornare il consulente."
     }
   },
   "hooks": {
@@ -9293,7 +9302,8 @@
         "needs_earlier_history_count_many": "Seleziona per caricare la cronologia precedente: restano {{count}} messaggi precedenti",
         "needs_earlier_history_count_other": "Seleziona per caricare la cronologia precedente: restano {{count}} messaggi precedenti",
         "share_message": "Condividi come immagine",
-        "copy_failed": "Copia non riuscita"
+        "copy_failed": "Copia non riuscita",
+        "advisorDiscarded": "Scartato"
       },
       "chatFooter": {
         "compacting": "Compattazione in corso…",
@@ -9812,6 +9822,14 @@
         "copy_text_failed": "Copia non riuscita",
         "copy_text_unavailable": "Gli appunti sono bloccati qui. Il testo del tuo post è selezionato: premi Ctrl+C / ⌘C. Il testo della card che hai modificato va copiato dalla card stessa.",
         "export_failed": "Impossibile generare la scheda di condivisione"
+      },
+      "advisorMessage": {
+        "advisor": "Consulente",
+        "nit": "Suggerimento",
+        "concern": "Segnalazione",
+        "blocker": "Bloccante",
+        "saved_for_next_turn": "Salvato per il turno successivo",
+        "evidence": "Evidenza"
       }
     },
     "chatPage": {
@@ -12824,6 +12842,18 @@
         "other": "Altro",
         "pin_last_prompt": "Fissa l’ultimo turno",
         "pin_last_prompt_desc": "Mantieni visibile il turno più recente come banner fisso quando scorre oltre l’area visibile.",
+        "advisor": "Consulente",
+        "enable_advisor": "Attiva il consulente",
+        "enable_advisor_description": "Un secondo modello facoltativo esamina le sessioni ai punti di controllo e segnala i problemi. È disattivato per impostazione predefinita; puoi modificarlo per ogni sessione nel popover del modello.",
+        "reviewer_model": "Modello revisore",
+        "empty_uses_the_default_model": "Se vuoto, usa il modello predefinito",
+        "non_blocker_budget": "Limite delle note non bloccanti",
+        "non_blocker_budget_description": "Numero massimo di note minori e dubbi per aggiornamento della revisione.",
+        "interruption_cooldown_seconds": "Intervallo tra interruzioni (secondi)",
+        "interruption_cooldown_description": "Intervallo minimo tra le interruzioni del consulente.",
+        "include_reasoning": "Includi il ragionamento",
+        "include_reasoning_description": "Consenti al modello revisore di vedere anche il ragionamento oscurato del modello principale.",
+        "failed_to_save_advisor_setting": "Impossibile salvare l’impostazione del consulente",
         "power": "Energia",
         "prevent_sleep_while_running": "Impedisci la sospensione durante l'esecuzione",
         "product_manager": "Product Manager",

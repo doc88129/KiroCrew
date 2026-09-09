@@ -6033,7 +6033,8 @@
         "turn_took_credits": "Turn took {{elapsed}} and used {{credits}} credits",
         "turn_took_credits_cost": "Turn took {{elapsed}} and used {{credits}} credits ({{cost}} API cost)",
         "pin_message": "Pin message",
-        "unpin_message": "Unpin message"
+        "unpin_message": "Unpin message",
+        "advisorDiscarded": "Discarded"
       },
       "chatFooter": {
         "compacting": "Compacting…",

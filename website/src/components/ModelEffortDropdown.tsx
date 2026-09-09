@@ -5,6 +5,7 @@ import { ChevronRight, ChevronLeft, Settings2, Pin, Check, Ban } from 'lucide-re
 import { Input } from './ui'
 import ModelDropdownList, { type ModelItem } from './ModelDropdownList'
 import ReasoningEffortDropdown from './ReasoningEffortDropdown'
+import AdvisorOverrideControl, { type AdvisorOverride } from './AdvisorOverrideControl'
 import { effortLabel } from './ChatInput'
 
 import { i18nT } from '../i18n/t'
@@ -22,6 +23,7 @@ interface Props {
   hasEffort: boolean
   slot: string | null
   currentEffort: string
+  currentAdvisorOverride?: AdvisorOverride
   /** Configured default effort for new sessions. Shown in the footer when the
    *  slot carries no override, so the row reflects what a turn would run at. */
   defaultEffort?: string
@@ -67,7 +69,7 @@ const SPRING = { type: 'spring' as const, stiffness: 420, damping: 38 }
  *  a back chevron returns. The popover height springs to the active page. */
 export default function ModelEffortDropdown({
   anchorRect, dropdownRef, inputRef, models, activeModel, onSelectModel,
-  filter, setFilter, onClose, hasEffort, slot, currentEffort, onListKeyDown, onSetDefault,
+  filter, setFilter, onClose, hasEffort, slot, currentEffort, currentAdvisorOverride = 'inherit', onListKeyDown, onSetDefault,
   defaultEffort = '', effortLevelsOverride, onPinToAgent, agentName = '', pinModelName = '',
   pinModelUnavailable = false, pinnedToAgent = false,
 }: Props) {
@@ -80,7 +82,7 @@ export default function ModelEffortDropdown({
   useLayoutEffect(() => {
     const el = showEffort ? effortPage.current : modelPage.current
     if (el) setHeight(el.offsetHeight)
-  }, [showEffort, models.length, filter, currentEffort, hasEffort, onSetDefault, onPinToAgent, agentName, pinModelName, pinModelUnavailable, pinnedToAgent])
+  }, [showEffort, models.length, filter, currentEffort, currentAdvisorOverride, hasEffort, onSetDefault, onPinToAgent, agentName, pinModelName, pinModelUnavailable, pinnedToAgent])
 
   // Right-align the dropdown to the button's right edge (clamped to viewport).
   const left = Math.max(8, Math.min(anchorRect.right - WIDTH, window.innerWidth - WIDTH - 8))
@@ -123,6 +125,9 @@ export default function ModelEffortDropdown({
                   <ChevronRight size={14} className="text-muted" />
                 </span>
               </button>
+            )}
+            {slot && (
+              <AdvisorOverrideControl slot={slot} currentOverride={currentAdvisorOverride} />
             )}
             {onPinToAgent && agentName && (
               <button

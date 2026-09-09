@@ -105,6 +105,15 @@ class PostureControl:
 # Where a sink runs only ONE of the two scanners, its detail text says so.
 _REDACTION_SINKS: tuple[tuple[str, str, str], ...] = (
     (
+        "Advisor advisory delivery",
+        "advisor/delivery.py",
+        "The cross-model reviewer's advisory text, redacted before it is "
+        "injected into the primary turn or persisted as a transcript card. "
+        "Reviewer output is model output: its evidence tools read the "
+        "observed workspace, so an echoed credential or exfiltration URL "
+        "would otherwise reach the primary provider and the transcript.",
+    ),
+    (
         "CLI wheel-update failures",
         "cli_server.py",
         "The failure text `kirocrew update` prints when a managed-venv shadow "
@@ -1281,6 +1290,14 @@ NON_EGRESS_REDACTION_MODULES: frozenset[str] = frozenset(
         # hygiene so a response echoing a credential or exfiltration URL cannot
         # leak into the log ring / /api/logs stream; not an egress boundary.
         "task_planner.py",
+        # Capture-side, not egress: every observation record arrives ALREADY
+        # redacted at the call site -- tool results via _redact_tool_field,
+        # segments as the same redacted form _flush_segment persists,
+        # reasoning as the dashboard's redacted thinking wire -- and the
+        # observer's optional redactor hook is a second pass, not the
+        # boundary. What SHOWS advisor output (the transcript row via the
+        # chat delivery seam, the gateway log) are the registered sinks.
+        "advisor/observation.py",
         # Capture-side, not egress: the per-session MCP report scrubs a server
         # name and a failing server's startup error as it RECORDS them, so a
         # credential never enters the accumulator at all. Deliberately earlier

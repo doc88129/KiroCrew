@@ -901,6 +901,16 @@ export const SETTINGS_REGISTRY: SettingEntry[] =
     "occurrence": 1
   },
   {
+    "id": "chat.enable-advisor",
+    "label": "Enable Advisor",
+    "labelKey": "pages.settings.chatPanel.enable_advisor",
+    "description": "An opt-in second model reviews sessions at checkpoints and flags issues. Off by default; override it per session in the model popover.",
+    "tab": "chat",
+    "type": "toggle",
+    "occurrence": 1,
+    "configKey": "advisor.enabled"
+  },
+  {
     "id": "chat.fallback-model",
     "label": "Fallback model",
     "labelKey": "pages.settings.chatPanel.fallback_model",
@@ -954,6 +964,26 @@ export const SETTINGS_REGISTRY: SettingEntry[] =
     "occurrence": 1
   },
   {
+    "id": "chat.include-reasoning",
+    "label": "Include reasoning",
+    "labelKey": "pages.settings.chatPanel.include_reasoning",
+    "description": "Also let the reviewer see the primary model's redacted reasoning.",
+    "tab": "chat",
+    "type": "toggle",
+    "occurrence": 1,
+    "configKey": "advisor.include_reasoning"
+  },
+  {
+    "id": "chat.interruption-cooldown-seconds",
+    "label": "Interruption cooldown (seconds)",
+    "labelKey": "pages.settings.chatPanel.interruption_cooldown_seconds",
+    "description": "Minimum gap between Advisor interruptions.",
+    "tab": "chat",
+    "type": "input",
+    "occurrence": 1,
+    "configKey": "advisor.cooldown_secs"
+  },
+  {
     "id": "chat.link-previews",
     "label": "Link Previews",
     "labelKey": "pages.settings.chatPanel.link_previews",
@@ -979,6 +1009,16 @@ export const SETTINGS_REGISTRY: SettingEntry[] =
     "tab": "chat",
     "type": "toggle",
     "occurrence": 1
+  },
+  {
+    "id": "chat.non-blocker-budget",
+    "label": "Non-blocker budget",
+    "labelKey": "pages.settings.chatPanel.non_blocker_budget",
+    "description": "Maximum nit and concern notes per review update.",
+    "tab": "chat",
+    "type": "input",
+    "occurrence": 1,
+    "configKey": "advisor.non_blocker_budget"
   },
   {
     "id": "chat.pin-the-latest-turn",
@@ -1051,6 +1091,16 @@ export const SETTINGS_REGISTRY: SettingEntry[] =
     "tab": "chat",
     "type": "select",
     "occurrence": 1
+  },
+  {
+    "id": "chat.reviewer-model",
+    "label": "Reviewer model",
+    "labelKey": "pages.settings.chatPanel.reviewer_model",
+    "description": "Empty uses the default model",
+    "tab": "chat",
+    "type": "input",
+    "occurrence": 1,
+    "configKey": "advisor.model"
   },
   {
     "id": "chat.send-shortcut",
