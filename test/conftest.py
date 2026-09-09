@@ -705,6 +705,26 @@ def _reset_reasoning_effort_globals():
         _cp._reasoning_effort_ordered = saved_ordered
 
 
+@pytest.fixture(autouse=True)
+def _reset_advisor_process_service():
+    """Snapshot + restore the process-wide Advisor service singleton around each
+    test. Advisor tests install an enabled service with a fake reviewer pool by
+    assigning ``kiro_crew.advisor.service._service``; left behind, a later chat
+    test on the same xdist worker runs with the Advisor unexpectedly active.
+    Resolved through ``sys.modules`` so tests that never import the advisor pay
+    nothing."""
+    import sys
+
+    mod = sys.modules.get("kiro_crew.advisor.service")
+    saved = getattr(mod, "_service", None) if mod is not None else None
+    try:
+        yield
+    finally:
+        mod = sys.modules.get("kiro_crew.advisor.service")
+        if mod is not None:
+            mod._service = saved
+
+
 #: ``_isolation_root`` / ``_isolation_dirs`` / ``_isolate_kirocrew_home`` live in the
 #: ROOTDIR ``conftest.py``, not here. The data home has to be pinned for every
 #: testpath, including the ~108 test modules that ship inside the package under

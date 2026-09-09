@@ -977,6 +977,44 @@ def test_the_spawn_mask_reaches_the_sandbox():
     assert "extra_expose_files=plan.extra_expose_files" in call
 
 
+def test_a_runtimes_writable_carveout_reaches_the_sandbox():
+    """``AcpRuntime(extra_writable_dirs=...)`` is how a caller hands its child one
+    writable directory inside the sealed runtime parent (the advisor's read-gate
+    ledger). A stored tuple the sandbox call never read would leave the child
+    unable to write it -- and the read gate then blocks every read."""
+    import inspect as _inspect
+
+    from kiro_crew.acp.runtime import AcpRuntime
+
+    source = _inspect.getsource(AcpRuntime._spawn_admitted)
+    call = source.split("wrap_argv_async(")[1].split(")")[0]
+    assert "extra_writable_dirs=self._extra_writable_dirs" in call
+    assert "self._extra_writable_dirs = tuple(extra_writable_dirs)" in _inspect.getsource(
+        AcpRuntime.__init__
+    )
+
+
+def test_a_credential_free_runtime_strips_the_api_key_after_the_harness_injects_it():
+    """``credential_free_env`` removes ``KIRO_API_KEY`` from the child environment
+    AFTER the harness's ``apply_spawn_env`` (which re-injects it for kiro-cli) and
+    after the generic scrub (which deliberately leaves it alone), so no later
+    resolver can reintroduce it. The reviewer runtime uses this: its process reads
+    untrusted content with auto-approved tools, so its environment must hold no
+    credential a raced procfs read could reach."""
+    import inspect as _inspect
+
+    from kiro_crew.acp.runtime import AcpRuntime
+
+    runtime = AcpRuntime(work_dir="/tmp", acp_backend=ACP_BACKEND_KIRO, credential_free_env=True)
+    assert runtime._credential_free_env is True
+    assert AcpRuntime(work_dir="/tmp")._credential_free_env is False
+    source = _inspect.getsource(AcpRuntime._spawn_admitted)
+    scrub_at = source.index("env = scrub_agent_subprocess_env(env)")
+    strip_at = source.index("strip_kiro_cli_api_key(env)")
+    assert scrub_at < strip_at
+    assert "if self._credential_free_env:" in source[scrub_at:strip_at]
+
+
 def test_an_enforced_host_may_not_spawn_without_a_mask():
     """A host this core's tool gate ENFORCES must carry a credential mask.
 

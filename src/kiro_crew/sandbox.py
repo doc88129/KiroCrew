@@ -44,7 +44,12 @@ from typing import TYPE_CHECKING, Literal, NamedTuple
 
 from kiro_crew import platform_compat
 from kiro_crew.atomic_write import refuse_linked_parent
-from kiro_crew.config.paths import config_dir, kiro_agents_dir
+from kiro_crew.config.paths import (
+    advisor_agents_dir,
+    advisor_kiro_home,
+    config_dir,
+    kiro_agents_dir,
+)
 from kiro_crew.constants import KIROCREW_SPAWNED_ENV, KIROCREW_SPAWNED_VALUE
 from kiro_crew.identity_stores import AUTH_SQLITE_DB, AUTH_SQLITE_SIDECAR_SUFFIXES
 from kiro_crew.memory_stores import EXECUTION_LOGS_DIR_NAME, MEMORY_STORES_DIR_NAME
@@ -373,6 +378,13 @@ _CREW_READONLY_LEAVES: tuple[str, ...] = (
     "computer_use.json",
     "oauth_endpoints.json",
     "aws_service_consent.json",
+    # The Advisor reviewer's process cwd. kiro-cli resolves ``--agent`` against
+    # ``<cwd>/.kiro/agents`` first, so a spec written here (by a sandboxed shell,
+    # which the file-edit tool gate never sees) would shadow the managed read-only
+    # reviewer spec. Read-only inside every sandbox, pre-created so the mount
+    # exists, and never resolved through a symlink (its name must stay the mounted
+    # name). The gateway writes nothing into it; it is an empty anchor.
+    "advisor",
     # Recorded consent to deliver a scanner-flagged file. Same class as
     # ``aws_service_consent.json``: a writable grant lets an auto-approved agent
     # consent, on the owner's behalf, to shipping the owner's secrets. This seal is
@@ -463,6 +475,20 @@ _CREW_SANDBOX_VISIBLE_LEAVES: tuple[str, ...] = (
 )
 
 
+def mcp_only_crew_leaf_targets() -> list[str]:
+    """Absolute crew-home paths of every ``_CREW_SANDBOX_VISIBLE_LEAVES`` entry a
+    child without in-sandbox MCP servers has no claim on -- all of them but ``run``,
+    which holds the launcher itself. Both data-home spellings plus the relocated
+    home, so a caller can hand the list to ``wrap_argv(extra_hidden_dirs=...)``:
+    the tier leaves these READ-WRITE for a primary's MCP servers (SEL appends, the
+    dashboard secret), and a child that runs none of them must not read them."""
+    leaves = tuple(leaf for leaf in _CREW_SANDBOX_VISIBLE_LEAVES if leaf != "run")
+    home = str(Path.home())
+    targets = [os.path.join(home, entry) for entry in _crew_home_entries(leaves)]
+    targets.extend(_relocated_crew_targets(leaves))
+    return list(dict.fromkeys(targets))
+
+
 def _crew_home_entries(leaves: tuple[str, ...]) -> list[str]:
     """Expand *leaves* across both data-home spellings."""
     return [f"{prefix}/{leaf}" for prefix in _CREW_HOME_PREFIXES for leaf in leaves]
@@ -475,8 +501,9 @@ _CREW_READONLY_TARGETS: list[str] = _crew_home_entries(_CREW_READONLY_LEAVES)
 
 
 def _resolved_kiro_agents_targets() -> list[str]:
-    """The RESOLVED kiro agents tree — fork/template specs AND their advisory
-    lock — sealed read-only as a directory.
+    """The RESOLVED agent-spec trees sealed read-only as directories: the operator's
+    kiro agents tree (fork/template specs AND their advisory lock) and the Advisor
+    reviewer's private agents tree.
 
     The specs are what fork governance sanitizes (allowedTools ceiling,
     autoApprove strip), so a sandboxed process that can rewrite one hands its
@@ -491,9 +518,22 @@ def _resolved_kiro_agents_targets() -> list[str]:
     never ``realpath`` (event-loop safety), and never raises.
     """
     try:
-        return [os.path.normpath(str(kiro_agents_dir()))]
+        targets = [os.path.normpath(str(kiro_agents_dir()))]
     except Exception:
         return []
+    try:
+        # The Advisor reviewer's private agents tree (``<kiro home>/kirocrew-advisor/
+        # agents``). The reviewer's kiro-cli resolves its ``--agent`` spec there, and
+        # that spec is what makes the reviewer TOOLLESS (``"tools": []``): a sandboxed
+        # primary agent that could rewrite it would hand the next reviewer spawn forged
+        # tools. Same seal, same accessor discipline, same delegated-platform refusal
+        # (:func:`delegated_workspace_exposes_agents_dir`) as the operator's tree; only
+        # the ``agents`` leaf, because kiro-cli must keep writing the reviewer's session
+        # store beside it. The gateway installer that writes the spec runs unsandboxed.
+        targets.append(os.path.normpath(str(advisor_agents_dir())))
+    except Exception:  # pragma: no cover - defensive, same posture as above
+        logger.debug("could not resolve the advisor agents dir for sealing", exc_info=True)
+    return targets
 
 
 #: Hidden crew-home leaves one app's OWN backend must read and write.
@@ -765,11 +805,12 @@ _CREW_PRECREATE_READONLY_DIR_LEAVES: tuple[str, ...] = (
     "profiles",
     "member-memory-bindings",
     "playwright-cli",
+    "advisor",
 )
 #: Read-only directory leaves whose NAME must remain the mounted name. A resolving
 #: symlink is unsafe here: the mount follows its target and leaves the lexical name
 #: replaceable, which would let an agent choose the executable the gateway runs.
-_CREW_NOFOLLOW_READONLY_DIR_LEAVES: tuple[str, ...] = ("playwright-cli",)
+_CREW_NOFOLLOW_READONLY_DIR_LEAVES: tuple[str, ...] = ("playwright-cli", "advisor")
 assert set(_CREW_NOFOLLOW_READONLY_DIR_LEAVES) <= set(_CREW_PRECREATE_READONLY_DIR_LEAVES)
 _CREW_PRECREATE_READONLY_FILE_LEAVES: tuple[str, ...] = (
     "computer_use.json",
@@ -914,6 +955,12 @@ def _sealable_absent_ceilings() -> tuple[list[str], list[str]]:
         agents_dir = kiro_agents_dir()
         if os.path.isdir(root):
             dir_targets.append(str(agents_dir))
+            # The Advisor reviewer's agents tree, for the same reason: a namespace
+            # built while it was absent would keep it writable for the life of that
+            # session, including after the gateway later installs the reviewer spec
+            # there. Its parent (the reviewer's private Kiro home) may not exist yet
+            # either; ``_materialize_sealable_ceilings`` creates it.
+            dir_targets.append(str(advisor_agents_dir()))
     except Exception:  # pragma: no cover - defensive, same posture as above
         logger.debug("could not resolve the kiro agents dir for sealing", exc_info=True)
     return (dir_targets, file_targets)
@@ -1090,6 +1137,79 @@ def _require_real_dir_nofollow(target: str) -> None:
         )
 
 
+def _advisor_agents_target() -> str | None:
+    """The reviewer's agents dir as :func:`_sealable_absent_ceilings` spells it, or ``None``."""
+    try:
+        return str(advisor_agents_dir())
+    except Exception:  # pragma: no cover - defensive, same posture as the resolver
+        return None
+
+
+def _advisor_home_target() -> str | None:
+    """The reviewer's private Kiro home (the parent of :func:`_advisor_agents_target`)."""
+    try:
+        return str(advisor_kiro_home())
+    except Exception:  # pragma: no cover - defensive, same posture as the resolver
+        return None
+
+
+def _materialize_advisor_kiro_home_if_installed() -> None:
+    """Seatbelt-path entry to :func:`_materialize_advisor_kiro_home`.
+
+    The Linux path reaches it through the ceiling loop, gated on the crew data home
+    existing; this applies the same gate for a backend whose deny rules need no
+    materialised ``agents`` leaf but DO need the parent to be a real directory (see
+    the advisor-home rule in ``_build_seatbelt_profile``). Never raises for an
+    unresolvable data home; a planted link refuses the spawn exactly as on Linux.
+    """
+    try:
+        root = str(config_dir())
+    except Exception:  # pragma: no cover - defensive; a spawn must not fail on this
+        return
+    home = _advisor_home_target()
+    if home is None or not os.path.isdir(root):
+        return
+    _materialize_advisor_kiro_home(home)
+
+
+def _materialize_advisor_kiro_home(home: str) -> None:
+    """Create the reviewer's private Kiro home so its ``agents`` leaf can be sealed.
+
+    The generic ceiling loop skips a target whose parent is absent, which is right for
+    every other entry (their parents are the data home itself). Here the parent is
+    ``<kiro home>/kirocrew-advisor``, created by the gateway only once the advisor is
+    first enabled -- and a namespace built before that would keep the ``agents`` leaf
+    writable for the life of that session, spec installed or not. So the parent is
+    created here, owner-only, exactly as ``prepare_advisor_kiro_home`` would create it.
+
+    The parent is a component the reviewer resolves its spec THROUGH, so a link at that
+    name is the pre-planted shape this seal exists against: the mount would bind over the
+    referent's ``agents`` while the name stayed a swappable link in the agent-writable
+    ``~/.kiro``. Refused with ``lstat`` (never follows), before AND after the ``mkdir``
+    (which does not follow a link at its final component, so losing the race yields
+    ``EEXIST`` and the re-check). A link at or above the kiro home is the operator's own
+    layout and is not judged here, matching the operator's agents-dir entry.
+
+    **Fail-closed** like the rest of this seal: an unsealable reviewer spec dir is the
+    self-elevation hole, not a degraded mode. An absent kiro home is left absent (the
+    generic loop then skips the leaf, as it does for ``~/.kiro/agents``).
+    """
+    if not os.path.isdir(os.path.dirname(home)):
+        return
+    if os.path.lexists(home):
+        _require_real_dir_nofollow(home)
+        return
+    try:
+        os.mkdir(home, 0o700)
+    except FileExistsError:
+        _require_real_dir_nofollow(home)
+    except OSError as exc:
+        raise SandboxCeilingUnsealable(
+            f"cannot create the Advisor reviewer home {home} so its agents dir can be "
+            f"sealed: {exc}"
+        ) from exc
+
+
 def _publish_empty_ceiling(
     target: str, parent: str, content: bytes = _EMPTY_CEILING_DOCUMENT
 ) -> bool:
@@ -1188,7 +1308,18 @@ def _materialize_sealable_ceilings() -> list[str]:
     dir_targets, file_targets = _sealable_absent_ceilings()
 
     for target in dir_targets:
-        strict_nofollow = os.path.basename(target) in _CREW_NOFOLLOW_READONLY_DIR_LEAVES
+        is_advisor_agents = target == _advisor_agents_target()
+        # The advisor agents leaf is strict by PATH, not by its basename: ``agents`` is
+        # also the operator's tree, whose alias-backed layouts stay warn-only. This
+        # directory is product-managed, so a resolving link at it has no legitimate
+        # author and is exactly the post-install overwrite shape the seal exists against.
+        strict_nofollow = (
+            os.path.basename(target) in _CREW_NOFOLLOW_READONLY_DIR_LEAVES or is_advisor_agents
+        )
+        if is_advisor_agents:
+            # Before ``exists``: that call FOLLOWS a link planted at the parent, and
+            # would read the referent's ``agents`` as the ceiling being present.
+            _materialize_advisor_kiro_home(os.path.dirname(target))
         _refuse_if_dangling_symlink(target)
         if strict_nofollow:
             _refuse_if_symlink_leaf(target)
@@ -6013,6 +6144,18 @@ def _build_seatbelt_profile(
         rules.append(f'(deny file-write* (subpath "{escaped}"))')
         rules.append(f'(deny file-link (subpath "{escaped}"))')
     ancestor_guards = list(_voice_runtime_ancestor_guards())
+    # The Advisor reviewer's private Kiro home and every ancestor of it. The voice
+    # runtime's chain runs from the CREW data home, which shares ``~/.kiro`` with the
+    # advisor home only in the default layout: a relocated ``KIROCREW_HOME`` (or a
+    # ``KIRO_HOME`` override) leaves the advisor home's parents unpinned, and a
+    # sandboxed process could then rename ``<kiro home>`` away and plant a link that
+    # every advisor deny below resolves through. Same rule, same literal-only shape
+    # (the entry itself, never its contents, so ``sessions/`` beneath stays writable).
+    advisor_home = _advisor_home_target()
+    if advisor_home is not None:
+        for target in _literal_ancestor_guards((advisor_home,)):
+            if target not in ancestor_guards:
+                ancestor_guards.append(target)
     for target in ancestor_guards:
         escaped = target.replace('"', '\\"')
         rules.append(f'(deny file-write* (literal "{escaped}"))')
@@ -6031,6 +6174,23 @@ def _build_seatbelt_profile(
         rules.append(f'(deny file-write* (literal "{escaped}"))')
         rules.append(f'(deny file-write* (subpath "{escaped}"))')
         rules.append(f'(deny file-link (subpath "{escaped}"))')
+    # The Advisor reviewer's private Kiro home ITSELF (not its contents: kiro-cli must
+    # keep writing the reviewer's session store beneath it). Seatbelt matches the
+    # kernel's RESOLVED path, so the ``agents`` deny above holds only while that
+    # component is a real directory: a sandboxed process that could create it as a
+    # symlink into its workspace, or rename the real one away and plant a link, would
+    # write "through" ``.../agents`` to a name the deny never sees, and the reviewer
+    # would load the forged spec through the same link. The ``file-write*`` literal on
+    # the home -- and on every ancestor of it -- is emitted with ``ancestor_guards``
+    # above; that is the rule that blocks the symlink plant (creating, renaming over or
+    # unlinking the name). ``file-link`` fires on a hard-link target, which a directory
+    # cannot be, and is kept only for symmetry with the seals above. The gateway creates
+    # the directory unsandboxed (``_materialize_advisor_kiro_home``, on this backend's
+    # spawn path too). Linux gets the same property from the launcher refusing a link at
+    # that component before every spawn.
+    if advisor_home is not None:
+        escaped = advisor_home.replace('"', '\\"')
+        rules.append(f'(deny file-link (literal "{escaped}"))')
     for f in files:
         target = os.path.join(home, f)
         escaped = target.replace('"', '\\"')
@@ -6232,12 +6392,17 @@ def delegated_workspace_exposes_agents_dir(work_dir: "str | os.PathLike[str] | N
         return None
 
     def _reason(target: str, how: str) -> str:
+        if target == _advisor_agents_target():
+            what = "the Advisor reviewer's agents directory"
+            harm = "could rewrite the toolless reviewer spec and hand the reviewer forged tools"
+        else:
+            what = "the kiro agents directory"
+            harm = "could rewrite template/fork specs and forge its next session's grants"
         return (
-            f"workspace '{os.fspath(work_dir)}' overlaps the kiro agents directory "
+            f"workspace '{os.fspath(work_dir)}' overlaps {what} "
             f"'{target}' ({how}); on this platform the spawn is delegated to kiro-cli's "
-            "internal sandbox, which treats the workspace as writable, so the agent "
-            "could rewrite template/fork specs and forge its next session's grants. "
-            "Choose a workspace outside the agents directory."
+            f"internal sandbox, which treats the workspace as writable, so the agent "
+            f"{harm}. Choose a workspace outside the agents directory."
         )
 
     def _norm(path: str) -> str:
@@ -6433,6 +6598,12 @@ def sandbox_exec_argv(
     # stays on the namespace path — a Seatbelt deny is a path rule that holds for a name
     # that does not exist yet — but an orphan already on disk needs sweeping here too.
     _sweep_legacy_md_notebook_temps()
+    # The one directory this backend DOES materialise: the Advisor reviewer's private
+    # Kiro home, because its ``agents`` deny holds only while that parent is a real
+    # directory (see the advisor-home rule in ``_build_seatbelt_profile``). Creating it
+    # unsandboxed here, and refusing a planted link, is what the literal deny then
+    # keeps true for the life of the sandbox.
+    _materialize_advisor_kiro_home_if_installed()
 
     if private_memory:
         # Refuse a broker endpoint outside the hidden namespaces before any

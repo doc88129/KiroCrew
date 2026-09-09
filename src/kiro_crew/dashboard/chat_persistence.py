@@ -17,6 +17,7 @@ from itertools import islice
 from pathlib import Path
 
 from kiro_crew import model_registry
+from kiro_crew.advisor.delivery import PENDING_CONTEXT_MAX
 from kiro_crew.agent import kiro_agents_dir_path
 from kiro_crew.agent_discovery import agent_model_map
 from kiro_crew.atomic_write import atomic_write
@@ -221,6 +222,69 @@ def update_reasoning_effort_values(acp_levels: list[str]) -> None:
         logger.info("Effort levels updated from ACP: %s", ordered)
         _reasoning_effort_values = merged
         _reasoning_effort_ordered = ordered
+
+
+def _bind_restored_advisor_context(slot: "_ChatSlot") -> None:
+    """Tag restored staged advice with the session it was restored for.
+
+    Called after the slot's link is restored: an untagged list would ride a
+    later rebind of the slot object into another conversation's prompt.
+    """
+    if slot._advisor_pending_context:
+        slot._advisor_pending_context_key = effective_session_key(slot)
+
+
+def _validate_advisor_pending_context(raw: object) -> list[str]:
+    """Persisted staged advisor context: a bounded list of strings.
+
+    Anything else (junk type, non-string entries) is dropped rather than
+    injected into a prompt; the list is capped to match the in-memory bound.
+    """
+    if not isinstance(raw, list):
+        return []
+    return [x for x in raw if isinstance(x, str) and x][-PENDING_CONTEXT_MAX:]
+
+
+def _validate_advisor_override(raw: object) -> str:
+    """Persisted advisor override, collapsed to the closed set.
+
+    An ABSENT value (``None``: a transcript written before the field existed)
+    is the default, ``inherit``. Anything else unrecognized is a malformed or
+    tampered disk value and collapses to ``off``: it must never enable the
+    advisor, and ``inherit`` would do exactly that under a global-on default.
+    The user can re-enable the session from the control.
+    """
+    if isinstance(raw, str) and raw in ("inherit", "on", "off"):
+        return raw
+    if raw is None:
+        return "inherit"
+    logger.warning("Discarding invalid persisted advisor_override: %r", raw)
+    return "off"
+
+
+def hydrate_advisor_meta(slot: "_ChatSlot", meta: Mapping[str, object]) -> None:
+    """Restore the persisted advisor state of a slot published from disk.
+
+    Every path that builds a slot from persisted metadata calls this AFTER the
+    slot's session link is settled (the staged context binds to the effective
+    session key): the history rehydration, the recent-session restore, the
+    explicit resume endpoint and the channel-session surface. Key presence, not
+    truthiness: an explicit malformed/empty override collapses to "off" (absent
+    stays "inherit") rather than being skipped, so a session that opted out
+    never comes back observed.
+    """
+    if "advisor_override" in meta:
+        slot.advisor_override = _validate_advisor_override(meta["advisor_override"])
+    if "advisor_pending_context" in meta:
+        slot._advisor_pending_context = _validate_advisor_pending_context(
+            meta["advisor_pending_context"]
+        )
+    if slot.advisor_override == "off":
+        # An explicit opt-out drops the advice staged for the next turn; the
+        # override can reach disk before the flush that persists the drop,
+        # so a restored slot applies the same rule instead of injecting it.
+        slot._advisor_pending_context = []
+    _bind_restored_advisor_context(slot)
 
 
 def _validate_reasoning_effort(raw: object) -> str:
@@ -1179,6 +1243,7 @@ def _rehydrate_slot_from_history(
             # Skipped, the slot would answer from a dashboard-only session and the
             # channel thread would stop seeing its replies.
             slot.linked_session_key = str(meta["linked_session_key"])
+        hydrate_advisor_meta(slot, meta)
         # Re-seed the live compaction threshold. The SessionManager's override
         # map is process-local, so a rehydrated slot must push its persisted
         # value back or the session silently compacts at the global threshold.
@@ -1727,6 +1792,7 @@ def _apply_recent_session(
         real_key = state.sessions.channel_key_for_stem(key)
         if real_key:
             slot.linked_session_key = real_key
+    hydrate_advisor_meta(slot, meta)
     # Re-seed the live compaction threshold (see _rehydrate_slot_from_history).
     if slot.autocompact_pct is not None and state.sessions:
         state.sessions.set_autocompact_pct(effective_session_key(slot), slot.autocompact_pct)
@@ -3045,6 +3111,13 @@ def _save_slot_to_history(
                     "mode": slot.mode or "",
                     "artifact": slot._artifact or "",
                     "reasoning_effort": slot.reasoning_effort or "",
+                    "advisor_override": slot.advisor_override,
+                    # Preserved next-turn advice must survive a restart --
+                    # staged only in memory it would vanish before the turn
+                    # it was preserved for. Bounded and string-only on write.
+                    "advisor_pending_context": [
+                        str(x) for x in list(slot._advisor_pending_context)[-PENDING_CONTEXT_MAX:]
+                    ],
                     "color_index": slot.color_index,
                     "color_hex": slot.color_hex or "",
                     "color_theme": slot.color_theme or "",
@@ -3384,6 +3457,15 @@ def _save_slot_to_history(
             meta_line["model"] = slot.model
             if slot.reasoning_effort:
                 meta_line["reasoning_effort"] = slot.reasoning_effort
+            # Unconditional: "inherit" is a non-empty CLEAR value that must
+            # overwrite an older persisted "on"/"off".
+            meta_line["advisor_override"] = slot.advisor_override
+            # Unconditional: an EMPTY list is the cleared state after the
+            # advice was delivered and must overwrite an older persisted
+            # pending list, or a restart would re-inject consumed advice.
+            meta_line["advisor_pending_context"] = [
+                str(x) for x in list(slot._advisor_pending_context)[-PENDING_CONTEXT_MAX:]
+            ]
             # Unconditional, matching the empty-window merge mirror: None is
             # the cleared "follow the global" value, not an absent field.
             meta_line["autocompact_pct"] = slot.autocompact_pct

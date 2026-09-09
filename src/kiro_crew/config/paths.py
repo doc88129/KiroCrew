@@ -658,6 +658,41 @@ def kiro_home() -> Path:
     return p
 
 
+#: Leaf name of the Advisor reviewer's private Kiro home under :func:`kiro_home`.
+_ADVISOR_KIRO_HOME_DIR = "kirocrew-advisor"
+
+
+def advisor_kiro_home(kiro_home_dir: Path | None = None) -> Path:
+    """Private Kiro home for the Advisor reviewer process (``<kiro home>/kirocrew-advisor``).
+
+    The reviewer's kiro-cli runs with ``KIRO_HOME`` pointed here so its agent spec
+    and session store never touch the operator's own ``~/.kiro``. It is a sibling
+    of the crew data home rather than a leaf inside it because the data home is
+    sealed read-only for every sandboxed process and a writable carve-out would
+    make the spawn unavailable on the platforms that delegate to kiro-cli's own
+    sandbox; kiro-cli must be able to persist its session here under every tier.
+
+    Lives in this leaf module (not ``agent_sdk.oneshot``) because
+    :mod:`kiro_crew.sandbox` seals :func:`advisor_agents_dir` and ``oneshot``
+    imports ``sandbox`` -- a second spelling there could drift away from the
+    sealed one.
+    """
+    return (kiro_home() if kiro_home_dir is None else kiro_home_dir) / _ADVISOR_KIRO_HOME_DIR
+
+
+def advisor_agents_dir() -> Path:
+    """The reviewer's agent-spec directory (``<advisor kiro home>/agents``).
+
+    kiro-cli resolves the reviewer's ``--agent`` spec here. That spec is what
+    makes the reviewer toolless (``"tools": []``), so the directory is sealed
+    read-only for sandboxed processes exactly like :func:`kiro_agents_dir` --
+    see ``sandbox._resolved_kiro_agents_targets`` and
+    ``security.paths._ADVISOR_AGENTS_DIR``. Only the gateway (unsandboxed)
+    writes here.
+    """
+    return advisor_kiro_home() / "agents"
+
+
 #: Test/tooling redirect for :func:`kiro_sessions_dir`, consulted on every call
 #: (``None`` = resolve from the environment). Same shape as
 #: :data:`_agents_dir_override` and for the same reason: several modules bind

@@ -37,9 +37,11 @@ from kiro_crew.cron_script import (
     resolve_script_path,
     validate_secret_env_grant,
 )
+from kiro_crew.dashboard.chat_persistence import hydrate_advisor_meta
 from kiro_crew.dashboard.cron_inject import (
     hydrate_slot_from_history,
     inject_cron_result_to_dashboard,
+    prefetch_cron_meta,
 )
 from kiro_crew.dashboard.handlers._shared import require_owner_dashboard_request
 from kiro_crew.dashboard.handlers.source_providers import is_owner_dashboard_request
@@ -1694,8 +1696,9 @@ async def api_cron_to_chat(request: web.Request) -> web.Response:
         # Re-surfacing a stored result, not delivering a fresh run: the prompt
         # that produced it is not recoverable from live config -- see
         # inject_cron_result_to_dashboard's ``include_prompt``.
+        meta = await prefetch_cron_meta(state, job.id)
         inject_cron_result_to_dashboard(
-            state, job, job.last_result or "", history=history, include_prompt=False
+            state, job, job.last_result or "", history=history, include_prompt=False, meta=meta
         )
     else:
         # Job deleted (one-shot with delete_after_run). Create slot from history or notification.
@@ -1706,10 +1709,15 @@ async def api_cron_to_chat(request: web.Request) -> web.Response:
             else []
         )
         if history:
+            meta = await prefetch_cron_meta(state, job_id)
             slot = state.get_or_create_slot(name=slot_name, agent="", origin=SlotOrigin.CRON)
             if not slot.linked_session_key:
                 slot.linked_session_key = session_key
                 hydrate_slot_from_history(slot, history)
+                if meta:
+                    # The persisted Advisor opt-out binds to the settled link,
+                    # as on every other restore path.
+                    hydrate_advisor_meta(slot, meta)
         else:
             # No session log — fall back to notification body.
             notif = next(

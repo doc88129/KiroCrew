@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from 'vitest'
-import { render, screen, fireEvent } from '@testing-library/react'
+import { render, screen, fireEvent, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { Provider } from 'react-redux'
@@ -136,7 +136,9 @@ describe('ModelEffortDropdown — visible models shortcut', () => {
     await user.tab()
     expect(slider).toHaveFocus()
 
-    const options = screen.getAllByRole('option')
+    // Scoped to the listbox: the Advisor row below the slider is a native
+    // <select>, whose <option> children also carry the implicit option role.
+    const options = within(screen.getByRole('listbox')).getAllByRole('option')
     const last = options[options.length - 1]
     last.focus()
     fireEvent.keyDown(last, { key: 'ArrowDown' })

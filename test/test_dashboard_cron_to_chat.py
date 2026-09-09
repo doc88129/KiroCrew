@@ -163,6 +163,32 @@ def run_marker_of(content: str) -> str:
 
 
 class TestInjectCronResultToDashboard:
+    def test_first_link_hydrates_the_persisted_advisor_opt_out(self):
+        """A caller that may create the slot (to-chat, delivery) hands the
+        transcript metadata along with the rows; the opt-out binds to the link."""
+        state = _make_state(history_messages=[{"role": "user", "content": "msg1"}])
+        job = _make_job()
+        _inject(
+            state, job, "result", meta={"advisor_override": "off", "advisor_pending_context": ["x"]}
+        )
+        slot = state.get_or_create_slot(name=f"cron-{job.id}")
+        assert slot.advisor_override == "off"
+        assert not getattr(slot, "_advisor_pending_context", [])
+
+    def test_every_first_bind_caller_hands_the_metadata_over(self):
+        """Source pin: the to-chat handler (active and deleted job) and the
+        gateway's creating delivery prefetch the metadata off-loop."""
+        from pathlib import Path
+
+        import kiro_crew.dashboard.handlers.cron as handler_mod
+        import kiro_crew.slack.gateway as gateway_mod
+
+        handler = Path(handler_mod.__file__).read_text(encoding="utf-8")
+        assert handler.count("await prefetch_cron_meta(state, ") == 2
+        assert "hydrate_advisor_meta(slot, meta)" in handler
+        gateway = Path(gateway_mod.__file__).read_text(encoding="utf-8")
+        assert "meta=await prefetch_cron_meta(self.dashboard_state, job.id)" in gateway
+
     def test_history_is_required_so_the_read_cannot_land_on_the_loop(self):
         """Omitting the prefetch is a TypeError at the call, not a production stall.
 

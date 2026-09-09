@@ -7,12 +7,15 @@ gateway.py and dashboard.handlers.
 from __future__ import annotations
 
 import asyncio
+import logging
 import math
 from typing import TYPE_CHECKING, Any
 
 from kiro_crew.dashboard.state import DashboardState, SlotOrigin, row_mid
 from kiro_crew.history import append_rows_if_absent_off_loop
 from kiro_crew.security import redact_credentials, redact_exfiltration_urls
+
+logger = logging.getLogger(__name__)
 
 if TYPE_CHECKING:
     from kiro_crew.cron import CronJob
@@ -372,6 +375,7 @@ def _bind_cron_slot(
     state: DashboardState,
     job: "CronJob",
     history: list[dict[str, Any]] | None,
+    meta: dict[str, Any] | None = None,
 ) -> Any:
     """Create-or-find the job's dashboard slot, bind its identity, publish it.
 
@@ -401,6 +405,13 @@ def _bind_cron_slot(
     if not slot.linked_session_key:
         slot.linked_session_key = f"cron:{job.id}"
         hydrate_slot_from_history(slot, history or [])
+        if meta:
+            # The persisted Advisor opt-out and staged advice bind to the
+            # settled link, as on every other restore path; the pre-create
+            # prefetches the metadata off-loop with the rows.
+            from kiro_crew.dashboard.chat_persistence import hydrate_advisor_meta
+
+            hydrate_advisor_meta(slot, meta)
     # Publish the (possibly just-created) tab to the dashboard-surface registry
     # BEFORE anything routes against it. Every gate that asks "does this session
     # have a tab?" — dashboard_slot_key for sub-agent event routing and
@@ -422,8 +433,13 @@ def inject_cron_result_to_dashboard(
     include_prompt: bool = True,
     history: list[dict[str, Any]] | None,
     context_reading: dict[str, Any] | None = None,
+    meta: dict[str, Any] | None = None,
 ) -> None:
     """Inject cron result into linked dashboard chat slot (shared by to-chat and auto-inject).
+
+    ``meta`` is that transcript's metadata (the Advisor opt-out and staged advice),
+    prefetched off-loop by a caller that may be the FIRST creator of the slot;
+    see :func:`prefetch_cron_meta`.
 
     ``history`` is the ``cron:{id}`` transcript, hydrated into the slot the first
     time this binds one. It is REQUIRED and has no default on purpose: this
@@ -468,7 +484,7 @@ def inject_cron_result_to_dashboard(
     replay path, or a run that measured nothing) records nothing and keeps
     whatever snapshot an earlier run stored.
     """
-    slot = _bind_cron_slot(state, job, history)
+    slot = _bind_cron_slot(state, job, history, meta)
     safe_name = _safe_job_name(job)
 
     # Rows this call owes the durable transcript, in the order they happened.
@@ -617,6 +633,23 @@ async def prefetch_cron_history(state: DashboardState, job_id: str) -> list[dict
     return await asyncio.to_thread(state.conversation_log.read_messages, f"cron:{job_id}")
 
 
+async def prefetch_cron_meta(state: DashboardState, job_id: str) -> dict[str, Any] | None:
+    """The ``cron:{id}`` transcript metadata, read off-loop for the first bind
+    (the Advisor opt-out and staged advice live there); ``None`` when there is
+    no log or the slot is already linked, mirroring :func:`prefetch_cron_history`."""
+    if state.conversation_log is None:
+        return None
+    slot = state.get_slot(f"cron-{job_id}")
+    if slot is not None and slot.linked_session_key:
+        return None
+    try:
+        meta = await asyncio.to_thread(state.conversation_log.get_metadata, f"cron:{job_id}")
+    except Exception:
+        logger.debug("cron %s: transcript metadata unavailable at bind", job_id, exc_info=True)
+        return None
+    return meta if isinstance(meta, dict) else None
+
+
 async def ensure_cron_slot(state: DashboardState, job: "CronJob") -> None:
     """Make an eligible job's tab exist — and carry its identity — at run START.
 
@@ -650,7 +683,8 @@ async def ensure_cron_slot(state: DashboardState, job: "CronJob") -> None:
     if slot is not None and slot.linked_session_key:
         return
     history = await prefetch_cron_history(state, job.id)
-    _bind_cron_slot(state, job, history)
+    meta = await prefetch_cron_meta(state, job.id)
+    _bind_cron_slot(state, job, history, meta)
 
 
 def hydrate_slot_from_history(slot: Any, messages: list[dict[str, Any]]) -> None:

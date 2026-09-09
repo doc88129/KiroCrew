@@ -7,6 +7,7 @@ import ReasoningEffortDropdown from './ReasoningEffortDropdown'
 
 import { useImeGuard } from '../hooks/useImeGuard'
 import { i18nT } from '../i18n/t'
+import AdvisorOverrideControl, { type AdvisorOverride } from './AdvisorOverrideControl'
 
 interface Props {
   anchorRect: DOMRect
@@ -36,6 +37,8 @@ interface Props {
   modelVisibilityError?: boolean
   onRetryModelVisibility?: () => void
   hasEffort: boolean
+  /** The slot's Advisor override, rendered as a row below the effort slider. */
+  currentAdvisorOverride?: AdvisorOverride
   slot: string | null
   currentEffort: string
   /** Configured default effort for new sessions. Shown in the footer when the
@@ -80,7 +83,7 @@ const WIDTH = 340
 /** Model picker with reasoning effort embedded below the searchable model list. */
 export default function ModelEffortDropdown({
   anchorRect, dropdownRef, inputRef, models, activeModel, onSelectModel,
-  filter, setFilter, onClose, hasEffort, slot, currentEffort, onListKeyDown, onSetDefault, onManageModels,
+  filter, setFilter, onClose, hasEffort, slot, currentEffort, currentAdvisorOverride = 'inherit', onListKeyDown, onSetDefault, onManageModels,
   modelVisibilityError = false, onRetryModelVisibility,
   defaultEffort = '', effortLevelsOverride, onPinToAgent, agentName = '', pinModelName = '',
   pinModelUnavailable = false, pinnedToAgent = false, modelsLoading = false,
@@ -222,6 +225,9 @@ export default function ModelEffortDropdown({
               <div className="mt-0.5 shrink-0 border-t border-border">
                 <ReasoningEffortDropdown slot={slot} currentEffort={currentEffort} defaultEffort={defaultEffort} onClose={onClose} embedded levelsOverride={effortLevelsOverride} />
               </div>
+            )}
+            {slot && (
+              <AdvisorOverrideControl slot={slot} currentOverride={currentAdvisorOverride} />
             )}
             {onPinToAgent && agentName && (
               <Btn

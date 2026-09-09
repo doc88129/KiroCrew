@@ -310,6 +310,7 @@ from .helpers import (
     resource_limit_spec,
 )
 from .paths import (
+    _ADVISOR_AGENTS_DIR,
     _CREW_HOME_PREFIXES,
     _CREW_SECRET_LEAVES,
     _HOME_TARGETS_TTL_SECS,

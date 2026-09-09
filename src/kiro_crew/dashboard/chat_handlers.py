@@ -3506,6 +3506,16 @@ async def _reset_slot_session(
         # because the pop and the bookkeeping are otherwise adjacent.
         await _test_interleave("reset:post_pop")
     if reloaded:
+        # Advisor epoch boundary: notified only AFTER the reset actually
+        # happened (reloaded truthy) — a skip_if_busy decline leaves the
+        # original session and its accumulated observations alive, so firing
+        # the boundary first would erase evidence from a session that never
+        # reset. Every switch/reload reset routes through this helper, so the
+        # advisor joins the lifecycle here rather than at six call sites; total
+        # no-op when the advisor is off.
+        from kiro_crew.advisor.service import BOUNDARY_RESET, get_advisor_service
+
+        get_advisor_service().notify_boundary(session_key, BOUNDARY_RESET)
         # The withhold verdict describes the session that advertised the model
         # list, not the slot, so it goes with the session. Routed through this one
         # funnel for the reason above: the switch handlers that reset a session
@@ -4118,7 +4128,24 @@ async def stop_slot_turn(
             # kill discards the text, so there is no requeued entry left to carry
             # the client's send id onto.
             slot._steer_send_ids.pop(_discarded, None)
+            # Advisory envelopes die with the hard kill too: the user's second
+            # press means discard everything, reviewer advice included. A row
+            # already persisted as steered flips to discarded FIRST (needs the
+            # envelope for the row identity), so the transcript never claims a
+            # killed advisory was delivered.
+            _discard_advisory_steer_rows(state, slot, _discarded)
+            slot._advisory_envelopes.pop(_discarded, None)
         slot._pending_steers.clear()
+        # An advisor review already inside pool.review is invisible to the
+        # steer maps above: bump the boundary generation so its completion is
+        # discarded instead of resurrecting advice this kill threw away.
+        from kiro_crew.advisor.delivery import drop_pending_advisor_context
+        from kiro_crew.advisor.service import notify_hard_kill
+
+        notify_hard_kill(effective_session_key(slot))
+        # Advice preserved just before the kill is staged for the next turn;
+        # the kill means discard everything, that included.
+        drop_pending_advisor_context(state, slot, to_state="discarded")
         state.push_slots_update()
         logger.info("Stop (force): hard-killing session for slot %s", name)
 
@@ -5213,6 +5240,39 @@ class SlotCloseError(Exception):
         self.status = status
 
 
+def _discard_advisory_steer_rows(state: "DashboardState", slot: "_ChatSlot", message: str) -> None:
+    """Flip a hard-killed advisory's persisted steered row to discarded.
+
+    A second Stop can land AFTER `steer_into_running_turn` persisted the
+    advisor row as steered but BEFORE the turn consumed it; clearing the
+    ledger alone leaves the transcript permanently claiming the advice was
+    delivered. Total and best-effort: no matching row is a no-op.
+    """
+    envelope = slot._advisory_envelopes.get(message)
+    update_id = getattr(envelope, "advisor_update_id", "")
+    if not update_id:
+        return
+    for row in reversed(slot.messages):
+        meta = row.get("meta") or {}
+        if (
+            row.get("role") == "advisor"
+            and meta.get("advisorUpdateId") == update_id
+            and meta.get("advisorState") == "steered"
+        ):
+            meta["advisorState"] = "discarded"
+            # In-place row mutation: persisted only by the dirty flush.
+            slot._dirty = True
+            patch: dict = {"slot": slot.key, "ts": row.get("ts"), "meta": meta}
+            mid = meta.get("mid")
+            if isinstance(mid, str) and mid:
+                patch["mid"] = mid
+            try:
+                state.broadcast_ws("chat_message_update", patch)
+            except Exception:
+                logger.debug("advisor discard patch broadcast failed", exc_info=True)
+            return
+
+
 async def close_slot(
     state: DashboardState,
     slot: "_ChatSlot",
@@ -5400,6 +5460,22 @@ async def _close_slot(
             state.push_slots_update()
             raise
     state._slots.pop(name, None)
+    # Terminal advisor boundary, synchronously AFTER the pop -- the close's
+    # point of no return. Every abort path above (nudge retirement, app hook,
+    # pre-pop re-check) restores the open slot, and an observer discarded
+    # before those could commit would erase live evidence from a slot that
+    # never closed. Fired with the slot's EFFECTIVE session key -- a
+    # channel-linked slot's observer is registered under the channel's own
+    # key, and a slot-name spelling would miss it. Total no-op when off.
+    from kiro_crew.advisor.delivery import advisor_session_slots
+    from kiro_crew.advisor.service import BOUNDARY_CLOSE, get_advisor_service
+
+    # Two slots can front one session (a channel-stem slot and a dashboard tab
+    # linked to the same channel key); the observer is keyed per session, so
+    # closing an idle alias must not drop the sibling's live observer. The
+    # slot is already popped, so the members are the siblings that remain.
+    if len(advisor_session_slots(state, slot)) == 1:
+        get_advisor_service().notify_boundary(effective_session_key(slot), BOUNDARY_CLOSE)
     # Release any blocking wait before cancelling the task: a question pending on
     # the blocking POST /api/ask-question path holds an MCP worker on an open
     # HTTP request, and the slot is going away, so nobody will answer its card.
@@ -6002,7 +6078,14 @@ async def _apply_remote_pick_locked(
     except RemoteTurnError as exc:
         return web.json_response({"error": str(exc), "code": "remote_pick_failed"}, status=502)
     value = body[control]
-    setattr(slot, control, value)
+    if control == "advisor_override":
+        # A peer-acknowledged decision: bumps the slot's mutation token so an
+        # older in-flight local transaction cannot roll it back.
+        from kiro_crew.advisor.service import set_advisor_override
+
+        set_advisor_override(slot, value)
+    else:
+        setattr(slot, control, value)
     if control == "agent":
         # The peer resolved this agent against ITS bindings and committed a
         # workspace for it — the same derivation the local switch does further
@@ -7760,6 +7843,195 @@ async def api_chat_slots_model(request: web.Request) -> web.Response:
             "failed": failed,
         }
     )
+
+
+async def api_chat_slot_advisor_override(request: web.Request) -> web.Response:
+    """POST /api/chat/slots/{slot}/advisor-override — set the advisor override.
+
+    Body: {"advisor_override": "inherit" | "on" | "off"}. A pure enablement
+    gate for the session advisor: no provider reset and no live session push
+    is needed — the advisor service reads the slot field at its next
+    attach/dispatch decision. Persisted by a forced save confirmed before the
+    200 and applied to a live observer at once (an effective ``off`` detaches
+    it and drops the advice staged for the next turn).
+    """
+    state: DashboardState = request.app["state"]
+    name = request.match_info["slot"]
+    slot = state._slots.get(name)
+    if not slot:
+        return web.json_response({"error": "not found", "code": "slot_not_found"}, status=404)
+    # App isolation on the SESSION, not just the slot (the cancel/model
+    # routes' policy): owning a channel-stem slot does not confer ownership
+    # of the conversation it is linked to, and enabling the advisor would
+    # route that conversation's turn content to the reviewer.
+    denied = _app_cancel_denied(request, slot, "slot_advisor_override", effective_session_key(slot))
+    if denied is not None:
+        return denied
+    body, body_err = await read_bounded_json(request)
+    if body_err is not None:
+        return body_err
+    assert body is not None  # read_bounded_json returns (dict, None) on success
+    override = body.get("advisor_override", "")
+    if not isinstance(override, str) or override not in ("inherit", "on", "off"):
+        return web.json_response(
+            {
+                "error": "advisor_override must be one of: inherit, on, off",
+                "code": "invalid_advisor_override",
+            },
+            status=400,
+        )
+    if slot.is_remote:
+        # A remote-bound slot runs its turns on the peer, so the override must
+        # land there; the peer re-validates against the same closed set.
+        return await _apply_remote_pick(
+            request, state, slot, "advisor_override", {"advisor_override": override}
+        )
+    if override == "on":
+        # Opting a session in while the reviewer cannot serve (the packaged
+        # reviewer is a kiro-cli agent; another selected backend detaches every
+        # observer) would report a review that never happens. Refuse with the
+        # same reason the settings toggle gives; `off`/`inherit` always land.
+        # After remote forwarding: a remote slot's peer judges its own backend.
+        from kiro_crew.advisor.service import get_advisor_service
+
+        service = get_advisor_service()
+        if not service.reviewer_available:
+            return web.json_response(
+                {
+                    "error": "The Advisor's reviewer runs on the kiro-cli agent backend only; "
+                    "it is unavailable under the selected agent.acp_backend",
+                    "code": "advisor_unavailable",
+                },
+                status=409,
+            )
+    # Serialize on the TRANSCRIPT, not the slot: channel-linked aliases resolve
+    # distinct slot names onto one session, and two override requests through
+    # different aliases hold disjoint slot locks -- the loser's rollback could
+    # re-persist a value captured before the winner's acknowledged write
+    # (undoing an opt-out). Same registry the autocompact override uses.
+    locked_history_key = slot_history_key(slot)
+    async with _autocompact_txn_lock(locked_history_key), slot._lock:
+        # Reauthorize INSIDE the lock: the body-read await above is a window
+        # in which the slot can be replaced or rebound (cron/workflow swap of
+        # `linked_session_key`), and the pre-await check authorized THAT
+        # binding, not whatever the slot fronts now. A replaced slot object
+        # or a failed re-check refuses rather than activating the advisor on
+        # a conversation the caller does not own.
+        current = state._slots.get(name)
+        if current is not slot:
+            return web.json_response(
+                {"error": "slot changed during request", "code": "slot_not_found"},
+                status=409,
+            )
+        session_key = effective_session_key(slot)
+        denied = _app_cancel_denied(request, slot, "slot_advisor_override", session_key)
+        if denied is not None:
+            return denied
+        # Session-scoped: observation is keyed per session, so every live
+        # slot fronting this session (a channel-stem slot and a dashboard tab
+        # linked to the same channel key) must carry the same override, or
+        # an opt-out here leaves the sibling re-attaching the reviewer on its
+        # next turn.
+        #
+        # Persisted the way every other slot-metadata route persists (pin /
+        # folder / tag / autocompact): a forced save confirmed BEFORE the 200.
+        # The periodic dirty flush skips message-less slots, so an override
+        # set on an empty tab would otherwise be acknowledged and then lost
+        # on restart. Transactional: on any failure the field is rolled back
+        # on every member, the slot is left dirty so the flush reconverges,
+        # and a coded error is returned.
+        from kiro_crew.advisor.delivery import advisor_session_slots
+
+        members = list(advisor_session_slots(state, slot))
+        # What a failed save (or a post-save rebind) may roll back: each alias's
+        # prior value, tagged with THIS request's mutation token. A sibling that
+        # rebound and was overridden again during the off-loop await -- even to
+        # the same value -- belongs to another transaction now, and restoring
+        # captured state into it would undo an acknowledged opt-out on its new
+        # session.
+        prior = {id(m): (m.advisor_override, m._advisor_override_txn + 1) for m in members}
+        # Pin the write to the transcript this authorization covered: the
+        # save derives its target from live routing at write time and the
+        # off-loop await is a rebind window (cron/workflow swap of
+        # `linked_session_key`). With ``expected_history_key`` the save refuses
+        # (False, nothing written) when the routing moved, so the durable
+        # write can never land on a session this request was not authorized
+        # against.
+        authorized_history_key = slot_history_key(slot)
+        if authorized_history_key != locked_history_key:
+            # Rebound between deriving the lock key and taking the lock: the
+            # transaction would run under the wrong transcript's lock.
+            return web.json_response(
+                {"error": "slot changed during request", "code": "slot_not_found"}, status=409
+            )
+        # The aliases share ONE transcript, so the value is persisted ONCE by
+        # the authorized slot's save; siblings are updated in memory only. A
+        # sibling's full save would rewrite the shared metadata (title,
+        # folder, tags, model, messages) from its own copy, so it is not
+        # dirtied here -- its next save carries the same value anyway.
+        from kiro_crew.advisor.service import OVERRIDE_OFF, set_advisor_override
+
+        for member in members:
+            set_advisor_override(member, override)
+        slot._dirty = True
+        if state.conversation_log:
+            try:
+                written = await save_slot_off_loop(
+                    state,
+                    slot,
+                    force=True,
+                    best_effort=False,
+                    expected_history_key=authorized_history_key,
+                )
+                if written is False:
+                    raise RuntimeError("routing moved during the override save; nothing written")
+            except Exception:
+                # Nothing reached disk: restore memory and report the failure.
+                for member in members:
+                    was, txn = prior[id(member)]
+                    if member._advisor_override_txn == txn:
+                        member.advisor_override = was
+                logger.exception("Slot %s advisor_override persist failed", name)
+                return web.json_response(
+                    {"error": "failed to persist advisor override", "code": "persist_failed"},
+                    status=500,
+                )
+        # An effectively-off override stops observation IMMEDIATELY: the live
+        # observer must not keep feeding the running turn's checkpoints to
+        # the reviewer until the next attach re-resolves the setting.
+        if override == OVERRIDE_OFF and slot_history_key(slot) == authorized_history_key:
+            # An explicit opt-out is a disagreement with the advice still
+            # staged for the next turn: drop it and re-label its cards once
+            # the override is durable (a failed save above rolled back and
+            # answered 500, so the advice stays with it), and only while the
+            # slot still fronts the transcript this request authorized -- a
+            # rebind during the save is rolled back below, not dropped from.
+            # The drop rides the dirty flush; a restore in between applies
+            # the same rule (``hydrate_advisor_meta``).
+            from kiro_crew.advisor.delivery import drop_pending_advisor_context
+
+            drop_pending_advisor_context(state, slot)
+        from kiro_crew.advisor.service import apply_override_change
+
+        # Partition by the transcript each alias fronts NOW: a slot rebound
+        # during the save (cron/workflow swap of `linked_session_key`) gets its
+        # value back -- it fronts another conversation -- while every slot still
+        # bound to the authorized transcript carries the written value, including
+        # an alias the channel reconciler created during the save await.
+        for member in members:
+            if slot_history_key(member) != authorized_history_key:
+                was, txn = prior[id(member)]
+                # Only this request's own write is undone; a value the rebound
+                # alias committed for its new session meanwhile (its own
+                # transaction, even the same value) is its own.
+                if member._advisor_override_txn == txn:
+                    member.advisor_override = was
+        for other in list(state._slots.values()):
+            if slot_history_key(other) == authorized_history_key:
+                set_advisor_override(other, override)
+        apply_override_change(session_key, override)
+    state.push_slots_update()
+    return web.json_response({"ok": True, "advisor_override": override})
 
 
 async def api_chat_slot_reasoning_effort(request: web.Request) -> web.Response:
@@ -9654,6 +9926,11 @@ async def api_chat_slot_resume(request: web.Request) -> web.Response:
         slot.autocompact_pct = _validate_autocompact_pct(meta["autocompact_pct"])
         if slot.autocompact_pct is not None and state.sessions:
             state.sessions.set_autocompact_pct(effective_session_key(slot), slot.autocompact_pct)
+    # Persisted advisor opt-out and staged advice, bound to the settled session
+    # link (the same hydration the history restore performs).
+    from kiro_crew.dashboard.chat_persistence import hydrate_advisor_meta
+
+    hydrate_advisor_meta(slot, meta)
     # Restore tags + the auto-tag once-flag (mirrors the persistence loaders).
     # Without the flag, resuming a session whose auto-tag the user removed
     # would re-run maybe_auto_tag on the next message and silently re-add it.

@@ -2391,6 +2391,34 @@ describe('sseChatMessagePatchByTs', () => {
       oauth_url: 'https://mcp.linear.app/authorize',
     })
   })
+
+  it('removes the row when the patch carries advisorRemoved (a steer revoked after acceptance)', () => {
+    const ts = '2026-05-28T01:00:00.000Z'
+    const card = {
+      role: 'advisor',
+      content: '',
+      cls: 'msg msg-advisor',
+      ts,
+      meta: { mid: 'm-1', advisorUpdateId: 'k:1:3', advisorState: 'steered', advisorText: 'stop' },
+    }
+    const state = {
+      ...initial,
+      activeSlot: 'slot-1',
+      messages: [card] as ChatMessage[],
+      slotMessages: { 'slot-1': [card] as ChatMessage[] },
+    }
+    const out = reducer(state, {
+      type: 'chat/sseChatMessagePatchByTs',
+      payload: {
+        slot: 'slot-1',
+        ts,
+        mid: 'm-1',
+        meta: { advisorState: 'discarded', advisorText: '', advisorRemoved: true },
+      },
+    })
+    expect(out.messages).toEqual([])
+    expect(out.slotMessages['slot-1']).toEqual([])
+  })
 })
 
 describe('sseContextUsage reducer', () => {
@@ -3235,5 +3263,27 @@ describe('steer does not deadlock pending approval (#1667)', () => {
       expect(selectSlotPendingApproval(wrap(state), slot)).not.toBeNull()
       expect(selectSlotPendingApproval(wrap(state), slot)?.meta?.approval_id).toBe('req-1')
     })
+  })
+})
+
+describe('appendSlotMessage advisor steer freezes the streaming row', () => {
+  const initial = reducer(undefined, { type: '@@INIT' })
+
+  it('finalizes the trailing streaming row before the Advisor card, so later chunks cannot land above it', () => {
+    // A mid-turn advisor steer arrives while the assistant is streaming. Like a
+    // user steer, it must freeze the streaming row into an assistant row first:
+    // the backend cuts the segment at the same boundary, so the frozen order
+    // matches the persisted transcript. Left as `streaming`, the next chunk
+    // would append to the row ABOVE the card and split the response around it.
+    let state = { ...initial, activeSlot: 'A', messages: [{ role: 'streaming' as const, content: 'partial answer', cls: 'msg msg-a' }] }
+    state = reducer(state, appendSlotMessage({ slot: 'A', message: { role: 'advisor', content: '[Advisor] blocker: drops the prod table', cls: 'msg msg-advisor', ts: 't1', meta: { steer: true, severity: 'blocker' } } }))
+    expect(state.messages.map(m => m.role)).toEqual(['assistant', 'advisor'])
+    expect(state.messages[0].content).toBe('partial answer')
+  })
+
+  it('does the same for a backgrounded slot', () => {
+    let state = { ...initial, activeSlot: 'A', slotMessages: { 'B': [{ role: 'streaming' as const, content: 'partial', cls: 'msg msg-a' }] } }
+    state = reducer(state, appendSlotMessage({ slot: 'B', message: { role: 'advisor', content: 'note', cls: 'msg msg-advisor', ts: 't1', meta: { steer: true } } }))
+    expect(state.slotMessages['B'].map(m => m.role)).toEqual(['assistant', 'advisor'])
   })
 })

@@ -841,6 +841,19 @@ _WRITE_PROTECTED_HOME_PATHS += [
     for prefix in _CREW_HOME_PREFIXES
 ]
 _WRITE_PROTECTED_HOME_PATHS += [
+    # The Advisor reviewer's PROCESS cwd (``advisor/composition.reviewer_process_cwd``).
+    # kiro-cli resolves ``--agent`` against ``<cwd>/.kiro/agents`` before the global
+    # agents directory, so a same-named spec written under this directory would
+    # shadow the managed read-only reviewer spec and hand the reviewer whatever tools
+    # and auto-approvals the planted file grants. WRITE-protected as a whole
+    # directory: nothing secret lives here (it is an otherwise empty anchor), but
+    # its contents are an input to a trust decision, exactly like the model weights
+    # below. The installer also refuses to spawn while anything sits under its
+    # ``.kiro`` tree, so the gate and the fail-closed check cover each other.
+    f"{prefix}/advisor"
+    for prefix in _CREW_HOME_PREFIXES
+]
+_WRITE_PROTECTED_HOME_PATHS += [
     # Downloaded MODEL WEIGHTS (speech recognition and embeddings both land here).
     # WRITE-protected as a whole directory, not read+write sensitive: the weights hold
     # no secret, and the settings surface and `kirocrew doctor` both read the directory
@@ -1017,6 +1030,23 @@ _WRITE_PROTECTED_HOME_PATHS += [
 # the crew secrets.
 _KIRO_AGENTS_DIR = ".kiro/agents"
 _WRITE_PROTECTED_HOME_PATHS += [_KIRO_AGENTS_DIR]
+
+# ── Advisor reviewer agent-spec directory (~/.kiro/kirocrew-advisor/agents) ──
+# The reviewer's kiro-cli runs with ``KIRO_HOME`` pointed at its private home
+# (``config.paths.advisor_kiro_home()``) and resolves its ``--agent`` spec from
+# the ``agents`` leaf there. That spec is what makes the reviewer TOOLLESS
+# (``"tools": []``): a sandboxed primary agent that could rewrite it would hand
+# the next reviewer spawn forged tools, so the directory is fenced on the same
+# write-only tier as ``_KIRO_AGENTS_DIR`` above, with the same OS seal beside it
+# (``sandbox._resolved_kiro_agents_targets``). Only the ``agents`` leaf: kiro-cli
+# must keep writing the reviewer's session store next to it. The gateway's own
+# installer (``advisor.composition.ensure_advisor_agent_installed``) writes the
+# spec through ``os``/``Path`` directly and never reaches this gate. Literal for
+# the same import-cycle reason as above; a drift guard pins it to
+# ``advisor_agents_dir()``'s tail, and the ``KIRO_HOME`` override is re-anchored
+# in ``_home_dir_targets_uncached`` next to the agents dir.
+_ADVISOR_AGENTS_DIR = ".kiro/kirocrew-advisor/agents"
+_WRITE_PROTECTED_HOME_PATHS += [_ADVISOR_AGENTS_DIR]
 
 #: Longest command ``is_sensitive_bash_command`` will scan. Longer input is
 #: REFUSED, not skipped and not scanned: both detectors the gate runs are linear
@@ -1880,6 +1910,15 @@ def _home_dir_targets_uncached(
         agents_real = _realpath_or_none(agents_full)
         if agents_real is not None:
             sensitive_targets.add(agents_real.casefold())
+    # The Advisor reviewer's agents dir follows the same override
+    # (``advisor_kiro_home()`` is ``kiro_home() / "kirocrew-advisor"``), so it
+    # is re-anchored the same way, under the same membership guard.
+    if kiro_home_override and _ADVISOR_AGENTS_DIR in home_dirs:
+        advisor_full = os.path.join(kiro_home_override, "kirocrew-advisor", "agents")
+        sensitive_targets.add(advisor_full.casefold())
+        advisor_real = _realpath_or_none(advisor_full)
+        if advisor_real is not None:
+            sensitive_targets.add(advisor_real.casefold())
     # An ACP adapter's OAuth token follows that adapter's own home override, so
     # the ``$HOME``-rooted entry anchored above covers only the documented
     # default. Re-anchor the token leaf under each override the adapter honours

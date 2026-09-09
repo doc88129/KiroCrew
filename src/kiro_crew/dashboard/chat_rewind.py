@@ -26,6 +26,7 @@ import logging
 
 from aiohttp import web
 
+from kiro_crew.advisor.service import notify_history_rewrite, restore_staged_advice
 from kiro_crew.dashboard.chat_persistence import _save_slot_to_history
 from kiro_crew.dashboard.chat_runner import _run_chat, _start_next_queued_turn
 from kiro_crew.dashboard.chat_utils import (
@@ -701,6 +702,12 @@ async def api_chat_slot_rewind(request: web.Request) -> web.Response:
             # worker's real outcome and complete the matching commit (and let
             # the reserved dispatch task run the edited prompt) before
             # propagating the cancellation.
+            # The rewound-away turns take their Advisor cards with them; a review
+            # still running about them, and advice staged for them, go the same
+            # way -- BEFORE the rewrite writes the slot's metadata, so the disk
+            # copy carries no staged advice a restart could rehydrate into the
+            # replacement timeline.
+            staged_advice = notify_history_rewrite(state, slot)
             save_task = asyncio.ensure_future(
                 asyncio.to_thread(
                     _save_slot_to_history,
@@ -736,10 +743,12 @@ async def api_chat_slot_rewind(request: web.Request) -> web.Response:
                     # the cancellation propagates instead of a response, so the
                     # SEL record is the ONLY place it can be attributed from.
                     _sel_native_destroyed("request_cancelled")
+                    restore_staged_advice(staged_advice)
                 raise
             except Exception:
                 logger.warning("rewind: failed to persist truncated history", exc_info=True)
                 _sel_native_destroyed("history_save_exception")
+                restore_staged_advice(staged_advice)
                 state.push_slots_update()
                 return web.json_response(
                     {
@@ -759,6 +768,7 @@ async def api_chat_slot_rewind(request: web.Request) -> web.Response:
                     slot.key,
                 )
                 _sel_native_destroyed("history_save_refused")
+                restore_staged_advice(staged_advice)
                 state.push_slots_update()
                 return web.json_response(
                     {

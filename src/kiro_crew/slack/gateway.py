@@ -127,6 +127,7 @@ from kiro_crew.dashboard.cron_inject import (
     ensure_cron_slot,
     inject_cron_result_to_dashboard,
     prefetch_cron_history,
+    prefetch_cron_meta,
 )
 from kiro_crew.dashboard.handlers import MAX_PROMPT_BYTES
 from kiro_crew.dashboard.handlers.autonudge import (
@@ -5455,6 +5456,7 @@ class GatewayOrchestrator:
                             result_text,
                             history=history,
                             context_reading=_ctx_reading,
+                            meta=await prefetch_cron_meta(self.dashboard_state, job.id),
                         )
                     redacted_for_dash, _ = redact_exfiltration_urls(result_text)
                     redacted_for_dash, _ = redact_credentials(redacted_for_dash)

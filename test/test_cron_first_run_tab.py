@@ -155,6 +155,26 @@ class TestEnsureCronSlot:
         assert caller_slot_key(state, "cron:job42") == "cron-job42"
 
     @pytest.mark.asyncio
+    async def test_the_persisted_advisor_opt_out_moves_with_the_link_too(self):
+        """A cron session opted out of the Advisor stays opted out when its tab
+        is re-created at the next run: the transcript metadata is prefetched
+        off-loop with the rows and hydrated after the link is settled, the
+        same rule every other restore path applies."""
+        state = _make_state(history_messages=[{"role": "user", "content": "run"}])
+        state.conversation_log.get_metadata.return_value = {
+            "advisor_override": "off",
+            "advisor_pending_context": ["stale advice"],
+        }
+        job = _make_job()
+
+        await ensure_cron_slot(state, job)
+
+        slot = state.get_slot("cron-job42")
+        assert slot.advisor_override == "off"
+        assert not getattr(slot, "_advisor_pending_context", [])
+        state.conversation_log.get_metadata.assert_called_once_with("cron:job42")
+
+    @pytest.mark.asyncio
     async def test_hydration_moves_with_the_link_and_injection_does_not_rehydrate(self):
         """The invariant the issue names: pre-creating WITH the link must also
         hydrate, and the later injection's unlink guard must then no-op — a

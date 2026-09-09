@@ -14,6 +14,7 @@ exceptions) keeps working for existing callers and tests.
 from __future__ import annotations
 
 import asyncio
+import dataclasses
 import functools
 import json
 import logging
@@ -730,6 +731,9 @@ class AcpRuntime:
         acp_backend: str = ACP_BACKEND_KIRO,
         crew_agent: str = "",
         private_memory: bool = False,
+        credential_free_env: bool = False,
+        extra_hidden_dirs: tuple[str, ...] = (),
+        extra_writable_dirs: tuple[str, ...] = (),
     ):
         if work_dir:
             self._work_dir = Path(work_dir)
@@ -775,6 +779,16 @@ class AcpRuntime:
         self._sandbox_mode = sandbox_mode
         self._private_memory = private_memory is True
         self._native_launch_sources: dict[str, str] = {}
+        # A child that reads untrusted content with auto-approved tools must hold
+        # no model credential in its environment: procfs exposes the environment
+        # through several aliases a raced read can reach. The child authenticates
+        # through kiro-cli's own login store instead.
+        self._credential_free_env = credential_free_env is True
+        # Absolute paths hidden from the child on top of the harness mask and the
+        # tier's own list; the Advisor's reviewer uses it for crew-home leaves
+        # only a primary's in-sandbox MCP servers need.
+        self._extra_hidden_dirs = tuple(extra_hidden_dirs)
+        self._extra_writable_dirs = tuple(extra_writable_dirs)
         if self._private_memory:
             from kiro_crew.member_memory_auth import require_private_memory_mcp_backend
 
@@ -1388,6 +1402,13 @@ class AcpRuntime:
 
         try:
             plan = await self._resolve_spawn_plan()
+            if self._extra_hidden_dirs:
+                # The plan carries the COMPLETE mask that reaches the sandbox
+                # call (see ``_resolve_spawn_plan``); this runtime's own extras
+                # join the harness mask there rather than at the wrap call.
+                plan = dataclasses.replace(
+                    plan, extra_hidden_dirs=(*plan.extra_hidden_dirs, *self._extra_hidden_dirs)
+                )
             argv = plan.argv
         except _KiroExecutableTrustError as exc:
             raise AcpRuntimeError(str(exc)) from exc
@@ -1443,6 +1464,7 @@ class AcpRuntime:
             strip_python_env=True,
             is_kiro_cli=delegate_internal_sandbox,
             extra_hidden_dirs=plan.extra_hidden_dirs,
+            extra_writable_dirs=self._extra_writable_dirs,
             extra_expose_files=plan.extra_expose_files,
             _prepare=wrap_argv,
             **private_kwargs,
@@ -1495,6 +1517,13 @@ class AcpRuntime:
         # credential-pointer/API-key resolution so no resolver can reintroduce a
         # denied variable; KIRO_API_KEY itself is intentionally not denied.
         env = scrub_agent_subprocess_env(env)
+        if self._credential_free_env:
+            # After the harness re-injected it and after the generic scrub (which
+            # leaves it alone on purpose): nothing later reintroduces it.
+            # circular import: config.loader -> dashboard -> session -> acp
+            from kiro_crew.config.loader import strip_kiro_cli_api_key
+
+            strip_kiro_cli_api_key(env)
         # Bundled skill scripts must not depend on a system ``python`` name.
         # The desktop bundles carry their interpreter outside the user's PATH,
         # while this path is already running under the exact environment that

@@ -60,6 +60,7 @@ EXPORTED_NAMES: tuple[str, ...] = (
     "Sequence",
     "StreamRedactor",
     "TYPE_CHECKING",
+    "_ADVISOR_AGENTS_DIR",
     "_AMBIGUOUS_EXPANSION_RE",
     "_AMBIGUOUS_REFS",
     "_AMBIGUOUS_REFSPEC_RE",

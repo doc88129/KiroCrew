@@ -230,6 +230,39 @@ async def test_memory_refusal_preserves_diagnostic_without_initialization_recove
 
 
 @pytest.mark.asyncio
+async def test_a_rebind_during_get_or_create_refuses_the_turn_before_the_advisor_attaches(tmp_path):
+    """The Advisor observer is keyed to the slot's LIVE conversation. A rebind
+    that lands while ``get_or_create`` is awaited would otherwise attach the
+    observer to conversation B while the turn streams conversation A's events,
+    feeding A's tool results and text into B's reviewer context. The binding
+    recheck that already guards the rest of preparation must run again right
+    before the attach."""
+    state, client = _runner_state(tmp_path)
+    slot = _slot()
+    # The observer keys on effective_session_key(slot), which a channel-born
+    # slot takes from linked_session_key: rebind THAT, so the test pins the
+    # dimension the attach actually uses rather than an unrelated field.
+    slot.linked_session_key = "cron:job-a"
+    acquired: list[str] = []
+
+    async def _rebind_while_spawning(session_key, *_args, **_kwargs):
+        acquired.append(session_key)
+        slot.linked_session_key = "cron:job-b"  # the rebind lands mid-await
+        return client, True, False
+
+    state.sessions.get_or_create = AsyncMock(side_effect=_rebind_while_spawning)
+    _set_stream(client, [LLMEvent(kind=EVENT_TEXT_CHUNK, text="hi"), LLMEvent(kind=EVENT_COMPLETE)])
+    with patch("kiro_crew.advisor.service.attach_for_turn") as attach:
+        await _drive(state, slot)
+
+    assert acquired == ["cron:job-a"], "the provider session was acquired for A"
+    attach.assert_not_called()
+    error = next(row for row in slot.messages if row["role"] == "error")
+    assert error["meta"]["code"] == "memory_unavailable"
+    assert "binding changed during preparation" in error["content"]
+
+
+@pytest.mark.asyncio
 @pytest.mark.parametrize("damaged_record", [False, True])
 async def test_private_session_cannot_dispatch_as_legacy_after_unsigned_binding_loss(
     tmp_path, monkeypatch, damaged_record

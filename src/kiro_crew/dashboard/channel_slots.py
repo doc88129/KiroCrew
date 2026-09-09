@@ -450,6 +450,9 @@ def surface_channel_session(
         slot.autocompact_pct = _validate_autocompact_pct(meta["autocompact_pct"])
         if slot.autocompact_pct is not None and state.sessions:
             state.sessions.set_autocompact_pct(effective_session_key(slot), slot.autocompact_pct)
+    from kiro_crew.dashboard.chat_persistence import hydrate_advisor_meta
+
+    hydrate_advisor_meta(slot, meta)
     if meta.get("workspace"):
         slot.workspace = meta["workspace"]
     if meta.get("memory_store"):

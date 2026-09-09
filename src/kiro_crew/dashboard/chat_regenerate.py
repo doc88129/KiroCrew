@@ -8,6 +8,7 @@ import logging
 
 from aiohttp import web
 
+from kiro_crew.advisor.service import notify_history_rewrite, restore_staged_advice
 from kiro_crew.dashboard.chat_persistence import _save_slot_to_history, save_slot_off_loop
 from kiro_crew.dashboard.chat_runner import _run_chat, _start_next_queued_turn
 from kiro_crew.dashboard.chat_utils import effective_session_key, slot_history_key
@@ -125,6 +126,9 @@ async def api_chat_slot_regenerate(request: web.Request) -> web.Response:
         # rewrite path so the dropped tail is still archived.
         slot._pending_rewrite = True
         slot._pending_variants = variants
+        # The dropped tail took its Advisor cards with it; a review still
+        # running about it, and advice staged for it, go the same way.
+        notify_history_rewrite(state, slot)
 
         try:
             msgs_snapshot = list(slot.messages)
@@ -225,6 +229,8 @@ async def api_chat_slot_switch_variant(request: web.Request) -> web.Response:
         target_dict["variant_idx"] = idx
         slot._dirty = True
         slot._resumed_count = 0
+        # The reply on screen is not the one the reviewer saw.
+        notify_history_rewrite(state, slot)
         try:
             msgs_snapshot = list(slot.messages)
             await asyncio.to_thread(_save_slot_to_history, state, slot, msgs_snapshot)
@@ -887,6 +893,12 @@ async def api_chat_slot_edit_resend(request: web.Request) -> web.Response:
             # not release the flag early. ``best_effort=False`` so a failure
             # propagates to the 503 below instead of being swallowed and
             # re-armed as a dirty retry.
+            # The edited-away turns take their Advisor cards with them; a review
+            # still running about them, and advice staged for them, go the same
+            # way -- BEFORE the rewrite writes the slot's metadata, so the disk
+            # copy carries no staged advice a restart could rehydrate into the
+            # replacement timeline.
+            staged_advice = notify_history_rewrite(state, slot)
             save_task = asyncio.ensure_future(
                 save_slot_off_loop(
                     state,
@@ -950,10 +962,12 @@ async def api_chat_slot_edit_resend(request: web.Request) -> web.Response:
                     # the cancellation propagates instead of a response, so the
                     # SEL record is the ONLY place it can be attributed from.
                     _sel_native_destroyed("request_cancelled")
+                    restore_staged_advice(staged_advice)
                 raise
             except Exception:
                 logger.warning("edit-resend: failed to persist", exc_info=True)
                 _sel_native_destroyed("history_save_exception")
+                restore_staged_advice(staged_advice)
                 state.push_slots_update()
                 return web.json_response(
                     {
@@ -973,6 +987,7 @@ async def api_chat_slot_edit_resend(request: web.Request) -> web.Response:
                     slot.key,
                 )
                 _sel_native_destroyed("history_save_refused")
+                restore_staged_advice(staged_advice)
                 state.push_slots_update()
                 return web.json_response(
                     {

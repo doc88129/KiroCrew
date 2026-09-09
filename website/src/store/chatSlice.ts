@@ -4309,6 +4309,10 @@ const chatSlice = createSlice({
       if (message.role === 'user' && message.meta?.steer && message.meta?.optimistic) {
         finalizeTrailingStreaming(msgs)
       }
+      // An Advisor steer is delivered mid-turn as the normal path and the
+      // backend cuts the segment at the same boundary: freeze the streaming row
+      // here too, or the next chunk lands ABOVE the card and splits the response.
+      if (message.role === 'advisor' && message.meta?.steer) finalizeTrailingStreaming(msgs)
       // Mark non-steer user bubbles as optimistic so the sseChatMessage
       // reconcile can distinguish them from channel-replayed messages (#2845).
       if (message.role === 'user' && !message.meta?.steer && message.meta?.sendId) {
@@ -5809,6 +5813,13 @@ const chatSlice = createSlice({
           ? msgs.findIndex(m => m.meta?.mid === mid)
           : msgs.findIndex(m => m.ts === ts)
         if (idx < 0) return
+        // The server removed this row from the transcript (an Advisor steer
+        // revoked after acceptance): drop it here too rather than showing a
+        // blank card until the next reload.
+        if (meta?.advisorRemoved === true) {
+          msgs.splice(idx, 1)
+          return
+        }
         const target = msgs[idx]
         if (meta) target.meta = { ...(target.meta || {}), ...meta }
         if (content !== undefined) target.content = content

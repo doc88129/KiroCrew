@@ -405,6 +405,13 @@
     "apps.meetings.broadcastBar.pausingPlaceholder": "Compose-bar placeholder while the pause request is still in flight; must not claim the meeting is already paused.",
     "apps.meetings.broadcastBar.resumingPlaceholder": "Compose-bar placeholder while the resume request is in flight; must not instruct the user to click Resume again.",
     "apps.meetings.transcript.emptyHintPaused": "Empty-transcript hint while the meeting is paused; reassures nothing was discarded without promising live speech.",
-    "apps.meetings.meeting.endingReview": "Transitional badge and compose placeholder while the End-and-review request is in flight; explains why controls are disabled."
+    "apps.meetings.meeting.endingReview": "Transitional badge and compose placeholder while the End-and-review request is in flight; explains why controls are disabled.",
+    "pages.chat.advisorMessage.nit": "Severity badge on an Advisor transcript card: the lowest severity, a minor non-blocking suggestion (the key keeps the reviewer-side name nit; the label reads Minor).",
+    "pages.settings.chatPanel.advisor": "Section heading in Settings > Chat for the cross-model session reviewer. Advisor is a product feature name here, not a financial or academic advisor.",
+    "pages.settings.chatPanel.enable_advisor": "Toggle label that enables the cross-model session reviewer globally. Advisor is the feature name; keep it consistent with components.advisorOverrideControl.advisor.",
+    "pages.settings.chatPanel.reviewer_model": "Select label for the model that reviews the primary model's work (the Advisor). Named after the Advisor section it sits in so a palette search for Advisor finds it.",
+    "pages.chat.advisorMessage.sent_mid_turn": "Outcome badge on an Advisor transcript card: the advice reached the running agent turn as a mid-turn steer. Names the outcome, not a mechanism.",
+    "pages.chat.advisorMessage.dropped_by_stop": "Outcome badge on an Advisor transcript card: the user stopped the turn while the advice was in flight, so it was intentionally dropped rather than saved.",
+    "components.advisorOverrideControl.helper_inherit_off": "One state-free sentence under the per-session Advisor select when the untouched default inherits a resolved global off: says what the Advisor is. Must not claim any review state or tell the user where to click."
   }
 }
